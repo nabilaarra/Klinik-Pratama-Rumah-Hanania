@@ -1,0 +1,46 @@
+/* Shared defaults for pages that opt into the global stylesheet. */
+:root {
+	--hanania-primary: #cea2fd;
+	--hanania-primary-dark: #ad6ef5;
+	--hanania-primary-hover: #be8dfa;
+	--hanania-accent: #5e2f9d;
+	--hanania-surface: #FFFFFF;
+	--hanania-background: #FAF7FD;
+	--hanania-purple-soft: #F6EDFF;
+	--hanania-border: #E5D5FA;
+	--hanania-text: #32283D;
+	--hanania-muted: #6B6178;
+}
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html {
+	scroll-behavior: smooth;
+}
+
+body {
+	margin: 0;
+	background: var(--hanania-background);
+	color: var(--hanania-text);
+	font-family: Arial, Helvetica, sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+	font: inherit;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+	outline: 3px solid rgba(206, 162, 253, .6);
+	outline-offset: 2px;
+}
