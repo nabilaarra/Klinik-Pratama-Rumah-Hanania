@@ -149,6 +149,15 @@ $estimasiMenunggu = '± 15 menit';
 $namaPasien = $data['nama_pasien'] ?? $hasilSession['nama_pasien'] ?? 'Pasien';
 $tenagaMedis = $data['nama_dokter'] ?: ($data['nama_bidan'] ?: ($hasilSession['nama_tenaga'] ?? 'Tenaga Kesehatan'));
 $statusLabel = ucfirst(str_replace('_', ' ', $data['status_pendaftaran'] ?? 'menunggu'));
+
+require_once __DIR__ . '/../includes/poin_helper.php';
+$poinDidapat = (int)($hasilSession['poin_didapat'] ?? 0);
+$poinTipe = $hasilSession['poin_tipe'] ?? '';
+if ($poinDidapat <= 0 && $db instanceof mysqli) {
+    $calcP = hitungPoinKunjungan($db, $data['jenis_pasien'] ?? 'Umum', $data['jenis_perawatan'] ?? '', $data['keluhan'] ?? '', (int)($data['id_poli'] ?? 0));
+    $poinDidapat = (int)$calcP['poin'];
+    $poinTipe = $calcP['tipe'];
+}
 ?>
 <!DOCTYPE html>
 <html lang="id">
@@ -406,6 +415,25 @@ a{text-decoration:none;color:inherit}
             <strong>⏰ Rekomendasi Waktu Kedatangan: Pukul <?= e($datangLabel) ?> WIB</strong>
             Hadir 15 menit sebelum estimasi mulai pelayanan (<?= e($layaniAwalLabel) ?> WIB) untuk konfirmasi check-in di bagian pendaftaran klinik.
         </div>
+
+        <?php if ($poinDidapat > 0): ?>
+            <div style="background: linear-gradient(135deg, #F5EEFD 0%, #EDE2F9 100%); border: 1.5px solid #D8BFF5; border-radius: 12px; padding: 14px 18px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <span style="font-size:26px;">⭐</span>
+                    <div>
+                        <strong style="color:var(--primary, #6A22A7); font-size:14px; display:block;">
+                            Selamat! Anda Mendapatkan +<?= $poinDidapat ?> Poin Reward Hanania
+                        </strong>
+                        <span style="font-size:12px; color:var(--text, #4A4A4A);">
+                            Kategori: <strong><?= e($poinTipe) ?></strong> • Saldo poin akun Sahabat Hanania Anda otomatis bertambah!
+                        </span>
+                    </div>
+                </div>
+                <a href="reward.php" style="background:var(--button, #8E44AD); color:#fff; font-size:12px; font-weight:800; padding:8px 16px; border-radius:8px; text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
+                    🎁 Cek Poin &amp; Reward &rarr;
+                </a>
+            </div>
+        <?php endif; ?>
 
         <section class="estimate-strip">
             <div class="estimate-item highlight">

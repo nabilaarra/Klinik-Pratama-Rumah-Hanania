@@ -536,9 +536,16 @@ try {
         }
     }
 
-    // 8. Tambahkan Poin Reward Pasien (+50 Poin)
-    $db->query("UPDATE pasien SET reward_poin = COALESCE(reward_poin, 0) + 50 WHERE id_pasien = $idPasien");
-    $curPoin = (int)($_SESSION['reward_poin'] ?? $_SESSION['user']['reward_poin'] ?? 0) + 50;
+    // 8. Tambahkan Poin Reward Pasien Sesuai Kategori Kunjungan (BPJS: 1, Biasa: 2, USG: 3, Bersalin: 10)
+    require_once __DIR__ . '/../includes/poin_helper.php';
+    $calcPoin = hitungPoinKunjungan($db, $jenisPasien, $jenisPerawatan, $keluhan, $idPoli);
+    $poinDidapat = (int)($calcPoin['poin'] ?? 0);
+    $poinTipe = $calcPoin['tipe'] ?? 'Kunjungan Pasien';
+
+    if ($poinDidapat > 0) {
+        $db->query("UPDATE pasien SET reward_poin = COALESCE(reward_poin, 0) + $poinDidapat WHERE id_pasien = $idPasien");
+    }
+    $curPoin = (int)($_SESSION['reward_poin'] ?? $_SESSION['user']['reward_poin'] ?? 0) + $poinDidapat;
     $_SESSION['reward_poin'] = $curPoin;
     if (isset($_SESSION['user'])) {
         $_SESSION['user']['reward_poin'] = $curPoin;
@@ -579,7 +586,9 @@ try {
         'keluhan'              => $keluhan,
         'ada_rujukan'          => $adaRujukan,
         'nama_perujuk'         => $namaPerujuk,
-        'sumber_pendaftaran'   => 'online'
+        'sumber_pendaftaran'   => 'online',
+        'poin_didapat'         => $poinDidapat,
+        'poin_tipe'            => $poinTipe
     ];
 
     header('Location: hasil_daftar.php');

@@ -91,7 +91,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmtAnt->close();
             }
 
-            $message = "Antrean offline berhasil ditambahkan! Nomor antrean: #" . str_pad((string)$nomorAntreanNumber, 3, '0', STR_PAD_LEFT);
+            // Tambahkan poin reward ke akun pasien sesuai kategori kunjungan
+            require_once __DIR__ . '/../includes/poin_helper.php';
+            $calcPoin = hitungPoinKunjungan($db, $jenisPasien, $jenisPerawatan, $keluhan, $idPoli);
+            $poinDidapat = (int)($calcPoin['poin'] ?? 0);
+            $poinTipe = $calcPoin['tipe'] ?? 'Kunjungan';
+            if ($poinDidapat > 0 && $idPasien > 0) {
+                $db->query("UPDATE pasien SET reward_poin = COALESCE(reward_poin, 0) + $poinDidapat WHERE id_pasien = $idPasien");
+            }
+
+            $message = "Antrean offline berhasil ditambahkan! Nomor antrean: #" . str_pad((string)$nomorAntreanNumber, 3, '0', STR_PAD_LEFT) . " (Pasien mendapatkan +{$poinDidapat} Poin: {$poinTipe})";
             $messageType = 'success';
         } catch (Exception $e) {
             $message = "Gagal menambah antrean: " . $e->getMessage();

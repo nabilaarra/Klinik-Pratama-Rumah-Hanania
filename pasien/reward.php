@@ -91,10 +91,24 @@ function getPoinKonten($db, $kunci, $default = '') {
     return $default;
 }
 
+require_once __DIR__ . '/../includes/poin_helper.php';
+$poinBpjsVal     = (int)getPoinSetting($db, 'poin_kunjungan_bpjs', 1);
+$poinBiasaVal    = (int)getPoinSetting($db, 'poin_kunjungan_biasa', 2);
+$poinUsgVal      = (int)getPoinSetting($db, 'poin_kunjungan_usg', 3);
+$poinBersalinVal = (int)getPoinSetting($db, 'poin_kunjungan_bersalin', 10);
+
 $poinHeroJudul = getPoinKonten($db, 'poin_hero_judul', 'Hanania Point & Reward');
 $poinHeroDeskripsi = getPoinKonten($db, 'poin_hero_deskripsi', 'Dapatkan apresiasi terbaik untuk setiap kunjungan dan konsultasi kesehatan Anda.');
 $poinPanduanJudul = getPoinKonten($db, 'poin_panduan_judul', 'Panduan & Cara Penukaran Poin');
-$poinPanduanTeks = getPoinKonten($db, 'poin_panduan_teks', "1. Setiap kunjungan pelayanan kesehatan di klinik akan memberikan poin reward ke akun Anda.\n2. Pilih reward atau voucher yang sesuai dengan jumlah poin yang Anda miliki.\n3. Ajukan penukaran dan tunggu persetujuan (ACC) dari Admin Klinik.\n4. Tunjukkan kode voucher resmi yang telah disetujui kepada petugas pendaftaran/kasir saat kunjungan berikutnya.");
+$defaultPanduanTeks = "1. Dapatkan poin reward di setiap kunjungan pelayanan:\n"
+    . "   • Kunjungan BPJS = {$poinBpjsVal} Poin\n"
+    . "   • Kunjungan Biasa (Tanpa USG) = {$poinBiasaVal} Poin\n"
+    . "   • Kunjungan USG = {$poinUsgVal} Poin\n"
+    . "   • Kunjungan Bersalin = {$poinBersalinVal} Poin\n"
+    . "2. Pilih reward atau voucher yang sesuai dengan jumlah poin yang Anda miliki.\n"
+    . "3. Ajukan penukaran dan tunggu persetujuan (ACC) dari Admin Klinik.\n"
+    . "4. Tunjukkan kode voucher resmi yang telah disetujui kepada petugas pendaftaran/kasir saat kunjungan berikutnya.";
+$poinPanduanTeks = getPoinKonten($db, 'poin_panduan_teks', $defaultPanduanTeks);
 
 // Default Katalog Reward Hanania jika belum diubah oleh admin
 $defaultKatalogReward = [
@@ -727,9 +741,42 @@ function eR($v) {
         <!-- INFORMASI & PANDUAN POIN -->
         <?php if (!empty($poinPanduanTeks)): ?>
             <div class="history-card" style="margin-bottom:32px;background:#FAF8FD;border:1.5px solid var(--hanania-border);padding:22px 24px;">
-                <div style="font-size:16px;font-weight:800;color:var(--hanania-purple-dark);margin-bottom:10px;display:flex;align-items:center;gap:8px;">
+                <div style="font-size:16px;font-weight:800;color:var(--hanania-purple-dark);margin-bottom:14px;display:flex;align-items:center;gap:8px;">
                     <span>💡</span> <?= eR($poinPanduanJudul) ?>
                 </div>
+
+                <!-- KARTU 4 KATEGORI PENDAPATAN POIN KUNJUNGAN -->
+                <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(210px, 1fr));gap:12px;margin-bottom:18px;">
+                    <div style="background:#FFFFFF;border:1.5px solid #E4D7F5;border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:12px;">
+                        <span style="font-size:24px;">🏥</span>
+                        <div>
+                            <div style="font-size:11px;color:var(--hanania-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.3px;">Kunjungan BPJS</div>
+                            <div style="font-size:16px;font-weight:900;color:var(--hanania-purple-dark);">+<?= $poinBpjsVal ?> Poin</div>
+                        </div>
+                    </div>
+                    <div style="background:#FFFFFF;border:1.5px solid #E4D7F5;border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:12px;">
+                        <span style="font-size:24px;">🩺</span>
+                        <div>
+                            <div style="font-size:11px;color:var(--hanania-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.3px;">Biasa (Tanpa USG)</div>
+                            <div style="font-size:16px;font-weight:900;color:var(--hanania-purple-dark);">+<?= $poinBiasaVal ?> Poin</div>
+                        </div>
+                    </div>
+                    <div style="background:#FFFFFF;border:1.5px solid #E4D7F5;border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:12px;">
+                        <span style="font-size:24px;">👶</span>
+                        <div>
+                            <div style="font-size:11px;color:var(--hanania-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.3px;">Kunjungan USG</div>
+                            <div style="font-size:16px;font-weight:900;color:var(--hanania-purple-dark);">+<?= $poinUsgVal ?> Poin</div>
+                        </div>
+                    </div>
+                    <div style="background:#FFFFFF;border:1.5px solid #E4D7F5;border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:12px;">
+                        <span style="font-size:24px;">🤱</span>
+                        <div>
+                            <div style="font-size:11px;color:var(--hanania-muted);font-weight:700;text-transform:uppercase;letter-spacing:0.3px;">Kunjungan Bersalin</div>
+                            <div style="font-size:16px;font-weight:900;color:var(--hanania-purple-dark);">+<?= $poinBersalinVal ?> Poin</div>
+                        </div>
+                    </div>
+                </div>
+
                 <div style="font-size:13px;color:var(--hanania-text);line-height:1.75;white-space:pre-line;">
                     <?= eR($poinPanduanTeks) ?>
                 </div>

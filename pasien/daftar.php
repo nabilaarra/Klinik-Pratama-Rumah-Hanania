@@ -1303,7 +1303,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover{
 
                     <div class="form-grid" style="margin-bottom:18px;">
                         <!-- 1. POLI PELAYANAN (DITARUH PALING AWAL) -->
-                        <div class="form-group <?= (!in_array($poliTerpilih, [3, 4]) && !in_array($layananTerpilih, ['usg', 'usg_2d', 'usg_4d'])) ? 'poli-full' : '' ?>" id="group_poli">
+                        <div class="form-group" id="group_poli">
                             <label for="id_poli">Poli Pelayanan *</label>
                             <select name="id_poli" id="id_poli" required onchange="onFilterChange()">
                                 <option value="">-- Pilih Poli --</option>
@@ -1315,12 +1315,45 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover{
                             </select>
                         </div>
 
-                        <!-- 2. PILIHAN LAYANAN / TINDAKAN (MUNCUL KHUSUS POLI KEBIDANAN / KANDUNGAN) -->
-                        <div class="form-group" id="group_tindakan" style="<?= (in_array($poliTerpilih, [3, 4]) || in_array($layananTerpilih, ['usg', 'usg_2d', 'usg_4d'])) ? 'display:block;' : 'display:none;' ?>">
+                        <!-- 2. PILIHAN LAYANAN / TINDAKAN (TERSEDIA UNTUK SEMUA POLI, DIKELOLA OLEH ADMIN) -->
+                        <div class="form-group" id="group_tindakan" style="display:block;">
                             <label for="jenis_perawatan">Pilihan Layanan / Tindakan *</label>
                             <select name="jenis_perawatan" id="jenis_perawatan" required onchange="onLayananChange()">
-                                <?php if (!empty($dataTindakanList)): ?>
-                                    <?php foreach ($dataTindakanList as $idxT => $tdk): 
+                                <?php 
+                                // Filter tindakan pendaftaran sesuai poli awal yang terpilih
+                                $filteredTindakanInit = [];
+                                if (!empty($dataTindakanList)) {
+                                    foreach ($dataTindakanList as $tdk) {
+                                        $terkait = trim($tdk['id_poli_terkait'] ?? '');
+                                        $namaLower = strtolower($tdk['nama_tindakan']);
+                                        
+                                        if ($poliTerpilih > 0) {
+                                            // Kebidanan (3) & Spesialis (4): mutlak tidak boleh ada pemeriksaan gigi
+                                            if (in_array($poliTerpilih, [3, 4]) && strpos($namaLower, 'gigi') !== false) {
+                                                continue;
+                                            }
+                                            // Poli Gigi (2): hanya tindakan gigi
+                                            if ($poliTerpilih === 2 && (strpos($namaLower, 'usg') !== false || strpos($namaLower, 'kebidanan') !== false || strpos($namaLower, 'anc') !== false || strpos($namaLower, 'sp.og') !== false || strpos($namaLower, 'bersalin') !== false || strpos($namaLower, 'imunisasi') !== false)) {
+                                                continue;
+                                            }
+                                            // Poli Umum (1): umum, cek darah, imunisasi (tidak boleh gigi, usg, kebidanan)
+                                            if ($poliTerpilih === 1 && (strpos($namaLower, 'gigi') !== false || strpos($namaLower, 'sp.og') !== false || strpos($namaLower, 'bersalin') !== false || strpos($namaLower, 'usg') !== false)) {
+                                                continue;
+                                            }
+                                            // Cek kecocokan poli terkait
+                                            if ($terkait !== '' && $terkait !== 'all') {
+                                                $pArr = array_map('trim', explode(',', $terkait));
+                                                if (!in_array((string)$poliTerpilih, $pArr, true)) {
+                                                    continue;
+                                                }
+                                            }
+                                        }
+                                        $filteredTindakanInit[] = $tdk;
+                                    }
+                                }
+                                ?>
+                                <?php if (!empty($filteredTindakanInit)): ?>
+                                    <?php foreach ($filteredTindakanInit as $idxT => $tdk): 
                                         $val = $tdk['nama_tindakan'];
                                         $icon = $tdk['icon'] ?: '🩺';
                                         $label = $icon . ' ' . $val;
@@ -1329,27 +1362,30 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover{
                                             $isSelected = true;
                                         } elseif ($layananTerpilih === 'usg_4d' && stripos($val, '4D') !== false) {
                                             $isSelected = true;
-                                        } elseif (!$layananTerpilih && stripos($val, 'Kebidanan') !== false) {
-                                            $isSelected = true;
                                         } elseif (!$layananTerpilih && $idxT === 0) {
                                             $isSelected = true;
                                         }
                                     ?>
                                         <option value="<?= e($val) ?>" <?= $isSelected ? 'selected' : '' ?>><?= e($label) ?></option>
                                     <?php endforeach; ?>
+                                <?php elseif ($poliTerpilih <= 0): ?>
+                                    <option value="">-- Pilih Poli Terlebih Dahulu --</option>
                                 <?php else: ?>
                                     <option value="Pemeriksaan Medis Umum">🩺 Pemeriksaan Medis Umum</option>
-                                    <option value="Pelayanan Kebidanan & ANC" selected>🤱 Pelayanan Kebidanan &amp; ANC</option>
-                                    <option value="USG 2D" <?= (in_array($layananTerpilih, ['usg', 'usg_2d'])) ? 'selected' : '' ?>>👶 USG Kehamilan 2D (Hitam Putih &amp; Print Foto)</option>
-                                    <option value="USG 3D/4D" <?= ($layananTerpilih === 'usg_4d') ? 'selected' : '' ?>>👶 USG Kehamilan 3D / 4D HD (Realtime Video &amp; Wajah Janin)</option>
-                                    <option value="Konsultasi Spesialis Kandungan (Sp.OG)">🤰 Konsultasi Dokter Spesialis Kandungan (Sp.OG)</option>
-                                    <option value="Imunisasi & Tumbuh Kembang">💉 Imunisasi &amp; Tumbuh Kembang Anak</option>
-                                    <option value="Pemeriksaan Gigi & Mulut">🦷 Pemeriksaan Kesehatan Gigi &amp; Mulut</option>
-                                    <option value="Laboratorium & Cek Darah">🧪 Pemeriksaan Laboratorium / Cek Darah</option>
                                 <?php endif; ?>
                             </select>
-                            <small style="color:#6A22A7;font-size:11.5px;margin-top:4px;display:block;">
-                                💡 Tindakan khusus kebidanan &amp; kandungan
+                            <small id="tindakan_hint" style="color:#6A22A7;font-size:11.5px;margin-top:4px;display:block;">
+                                <?php 
+                                if ($poliTerpilih === 1) {
+                                    echo '💡 Tersedia Pemeriksaan Medis Umum, Cek Darah / Lab, dan Imunisasi';
+                                } elseif ($poliTerpilih === 2) {
+                                    echo '💡 Layanan pemeriksaan dan perawatan kesehatan gigi &amp; mulut';
+                                } elseif (in_array($poliTerpilih, [3, 4])) {
+                                    echo '💡 Layanan kebidanan, pemeriksaan kehamilan ANC, USG &amp; Sp.OG';
+                                } else {
+                                    echo '💡 Sesuaikan dengan kebutuhan pemeriksaan Anda';
+                                }
+                                ?>
                             </small>
                         </div>
 
@@ -2133,36 +2169,39 @@ function setRujukanChoice(val) {
 }
 
 function onLayananChange() {
-    const sel = document.getElementById('jenis_perawatan').value;
+    if (isUpdatingTindakan) return;
+    const sel = document.getElementById('jenis_perawatan')?.value || '';
     const poliSel = document.getElementById('id_poli');
-    if (sel.includes('USG') || sel.includes('Kandungan')) {
-        // Otomatis pilih Poli Spesialis Kebidanan (4) jika ada, atau KIA (3)
-        if (poliSel) {
-            for (let opt of poliSel.options) {
-                if (opt.value === '4' || opt.text.toLowerCase().includes('kandungan') || opt.text.toLowerCase().includes('kebidanan')) {
+    if (!poliSel) return;
+
+    // Jika memilih tindakan kebidanan / kandungan / USG tetapi poli aktif bukan 3 atau 4
+    if ((sel.includes('USG') || sel.includes('Kandungan') || sel.includes('Sp.OG') || sel.includes('Kebidanan') || sel.includes('Bersalin')) && !['3', '4'].includes(poliSel.value)) {
+        for (let opt of poliSel.options) {
+            if (opt.value === '4' || opt.text.toLowerCase().includes('kandungan') || opt.text.toLowerCase().includes('kebidanan')) {
+                if (poliSel.value !== opt.value) {
                     poliSel.value = opt.value;
-                    break;
+                    onFilterChange();
                 }
+                break;
             }
-            onFilterChange();
-            // Otomatis pilih Dokter Spesialis Kandungan (Dr. Eddy Sp.OG / dr. Patricia)
-            setTimeout(() => {
-                const spogCard = [...document.querySelectorAll('.medical-card:not([style*="display: none"]):not(.is-cuti)')].find(c => {
-                    const text = (c.innerText || '').toLowerCase();
-                    return text.includes('sp.og') || text.includes('eddy') || text.includes('patricia') || text.includes('kandungan');
-                }) || document.querySelector('.medical-card:not([style*="display: none"]):not(.is-cuti)');
-                if (spogCard) pilihTenagaMedis(spogCard);
-            }, 60);
         }
-    } else if (sel.includes('Gigi')) {
-        if (poliSel) {
-            for (let opt of poliSel.options) {
-                if (opt.text.toLowerCase().includes('gigi')) {
+        // Otomatis pilih Dokter Spesialis Kandungan (Dr. Eddy Sp.OG / dr. Patricia)
+        setTimeout(() => {
+            const spogCard = [...document.querySelectorAll('.medical-card:not([style*="display: none"]):not(.is-cuti)')].find(c => {
+                const text = (c.innerText || '').toLowerCase();
+                return text.includes('sp.og') || text.includes('eddy') || text.includes('patricia') || text.includes('kandungan');
+            }) || document.querySelector('.medical-card:not([style*="display: none"]):not(.is-cuti)');
+            if (spogCard) pilihTenagaMedis(spogCard);
+        }, 60);
+    } else if (sel.includes('Gigi') && poliSel.value !== '2') {
+        for (let opt of poliSel.options) {
+            if (opt.value === '2' || opt.text.toLowerCase().includes('gigi')) {
+                if (poliSel.value !== opt.value) {
                     poliSel.value = opt.value;
-                    break;
+                    onFilterChange();
                 }
+                break;
             }
-            onFilterChange();
         }
     }
 }
@@ -2339,6 +2378,132 @@ function cekKetersediaanSesi(activeSessions) {
     }
 }
 
+// Data tindakan pendaftaran yang dikelola oleh Admin
+const allTindakanList = <?= json_encode($dataTindakanList, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+const initLayananUrl = <?= json_encode($layananTerpilih) ?>;
+let isUpdatingTindakan = false;
+
+function populateTindakanForPoli(idPoli, preferredValue = null) {
+    const tindakanSel = document.getElementById('jenis_perawatan');
+    const hintEl = document.getElementById('tindakan_hint');
+    if (!tindakanSel) return;
+
+    isUpdatingTindakan = true;
+    const previousValue = preferredValue || tindakanSel.value;
+    tindakanSel.innerHTML = '';
+
+    const poliStr = String(idPoli || '').trim();
+
+    if (!poliStr) {
+        const defOpt = document.createElement('option');
+        defOpt.value = '';
+        defOpt.textContent = '-- Pilih Poli Terlebih Dahulu --';
+        tindakanSel.appendChild(defOpt);
+        if (hintEl) hintEl.textContent = '💡 Silakan pilih Poli Pelayanan terlebih dahulu';
+        isUpdatingTindakan = false;
+        return;
+    }
+
+    // Filter tindakan berdasarkan id_poli_terkait & instruksi pengguna:
+    // 1. Kebidanan (3) & Spesialis Kebidanan/Kandungan (4): MUTLAK TIDAK BOLEH ADA GIGI
+    // 2. Poli Umum (1): bisa periksa medis umum, cek darah/laboratorium, dan imunisasi
+    // 3. Poli Gigi (2): hanya periksa gigi & mulut
+    const matchingTindakan = allTindakanList.filter(tdk => {
+        if (tdk.status && tdk.status !== 'aktif') return false;
+        const terkait = String(tdk.id_poli_terkait || '').trim();
+        const namaLower = (tdk.nama_tindakan || '').toLowerCase();
+
+        // Syarat 1: Kebidanan (3) & Spesialis (4) mutlak TIDAK ADA yang periksa gigi
+        if ((poliStr === '3' || poliStr === '4') && namaLower.includes('gigi')) {
+            return false;
+        }
+
+        // Syarat 2: Poli Gigi (2) hanya tindakan gigi
+        if (poliStr === '2') {
+            if (namaLower.includes('usg') || namaLower.includes('kebidanan') || namaLower.includes('anc') || namaLower.includes('sp.og') || namaLower.includes('bersalin') || namaLower.includes('imunisasi')) {
+                return false;
+            }
+        }
+
+        // Syarat 3: Poli Umum (1) bisa umum, cek darah/lab, imunisasi (tidak ada spesialis kandungan, kebidanan/bersalin, gigi)
+        if (poliStr === '1') {
+            if (namaLower.includes('gigi') || namaLower.includes('sp.og') || namaLower.includes('bersalin') || namaLower.includes('usg')) {
+                return false;
+            }
+        }
+
+        // Periksa kesesuaian kolom id_poli_terkait dari database
+        if (terkait === '' || terkait === 'all') return true;
+        const polis = terkait.split(',').map(s => s.trim());
+        return polis.includes(poliStr);
+    });
+
+    if (matchingTindakan.length === 0) {
+        const fallbackOpt = document.createElement('option');
+        if (poliStr === '2') {
+            fallbackOpt.value = 'Pemeriksaan Gigi & Mulut';
+            fallbackOpt.textContent = '🦷 Pemeriksaan Gigi & Mulut';
+        } else if (poliStr === '3' || poliStr === '4') {
+            fallbackOpt.value = 'Pelayanan Kebidanan & ANC';
+            fallbackOpt.textContent = '🤱 Pelayanan Kebidanan & ANC';
+        } else {
+            fallbackOpt.value = 'Pemeriksaan Medis Umum';
+            fallbackOpt.textContent = '🩺 Pemeriksaan Medis Umum';
+        }
+        tindakanSel.appendChild(fallbackOpt);
+    } else {
+        matchingTindakan.forEach(tdk => {
+            const opt = document.createElement('option');
+            opt.value = tdk.nama_tindakan;
+            const icon = tdk.icon || '🩺';
+            opt.textContent = `${icon} ${tdk.nama_tindakan}`;
+            tindakanSel.appendChild(opt);
+        });
+    }
+
+    // Tentukan item mana yang terpilih
+    let found = false;
+    if (previousValue) {
+        for (let i = 0; i < tindakanSel.options.length; i++) {
+            if (tindakanSel.options[i].value === previousValue) {
+                tindakanSel.selectedIndex = i;
+                found = true;
+                break;
+            }
+        }
+    }
+
+    if (!found && initLayananUrl) {
+        for (let i = 0; i < tindakanSel.options.length; i++) {
+            const optVal = tindakanSel.options[i].value.toLowerCase();
+            if (initLayananUrl.includes('usg') && optVal.includes('usg')) {
+                tindakanSel.selectedIndex = i;
+                found = true;
+                break;
+            }
+        }
+    }
+
+    if (!found && tindakanSel.options.length > 0) {
+        tindakanSel.selectedIndex = 0;
+    }
+
+    // Update petunjuk text di bawah dropdown
+    if (hintEl) {
+        if (poliStr === '1') {
+            hintEl.innerHTML = '💡 Tersedia Pemeriksaan Medis Umum, Cek Darah / Lab, dan Imunisasi';
+        } else if (poliStr === '2') {
+            hintEl.innerHTML = '💡 Layanan pemeriksaan dan perawatan kesehatan gigi &amp; mulut';
+        } else if (poliStr === '3' || poliStr === '4') {
+            hintEl.innerHTML = '💡 Layanan kebidanan, pemeriksaan kehamilan ANC, USG &amp; Sp.OG';
+        } else {
+            hintEl.innerHTML = '💡 Sesuaikan dengan kebutuhan pemeriksaan Anda';
+        }
+    }
+
+    isUpdatingTindakan = false;
+}
+
 function updateTindakanVisibility() {
     const poliSel = document.getElementById('id_poli');
     const groupTindakan = document.getElementById('group_tindakan');
@@ -2346,28 +2511,13 @@ function updateTindakanVisibility() {
     const tindakanSel = document.getElementById('jenis_perawatan');
     if (!poliSel || !groupTindakan) return;
 
-    const val = String(poliSel.value);
-    const optText = (poliSel.options[poliSel.selectedIndex]?.text || '').toLowerCase();
-    const isKebidanan = (val === '3' || val === '4' || optText.includes('kebidanan') || optText.includes('kandungan'));
+    const idPoli = poliSel.value;
+    populateTindakanForPoli(idPoli);
 
-    if (isKebidanan) {
-        groupTindakan.style.display = 'block';
-        if (groupPoli) groupPoli.classList.remove('poli-full');
-        if (tindakanSel) tindakanSel.required = true;
-    } else {
-        groupTindakan.style.display = 'none';
-        if (groupPoli) groupPoli.classList.add('poli-full');
-        if (tindakanSel) {
-            tindakanSel.required = false;
-            let targetVal = optText.includes('gigi') ? 'Pemeriksaan Gigi & Mulut' : 'Pemeriksaan Medis Umum';
-            let exists = Array.from(tindakanSel.options).some(o => o.value === targetVal);
-            if (!exists) {
-                const newOpt = new Option(targetVal, targetVal, true, true);
-                tindakanSel.add(newOpt);
-            }
-            tindakanSel.value = targetVal;
-        }
-    }
+    // Selalu tampilkan group tindakan untuk semua poli
+    groupTindakan.style.display = 'block';
+    if (groupPoli) groupPoli.classList.remove('poli-full');
+    if (tindakanSel) tindakanSel.required = true;
 }
 
 function onFilterChange() {

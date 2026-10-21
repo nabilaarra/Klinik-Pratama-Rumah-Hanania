@@ -8,6 +8,17 @@ if (!in_array($tab, ['layanan', 'fields'], true)) {
     $tab = 'layanan';
 }
 
+// Ambil daftar poli untuk pilihan poli terkait
+$allPoliList = [];
+$poliMap = [];
+$qPoliDb = $db->query("SELECT id_poli, nama_poli FROM poli ORDER BY id_poli ASC");
+if ($qPoliDb) {
+    while ($rp = $qPoliDb->fetch_assoc()) {
+        $allPoliList[] = $rp;
+        $poliMap[(string)$rp['id_poli']] = $rp['nama_poli'];
+    }
+}
+
 // -------------------------------------------------------------
 // TAB 1: LOGIKA LAYANAN / TINDAKAN PENDAFTARAN
 // -------------------------------------------------------------
@@ -47,7 +58,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (($_POST['form_target'] ?? '') === 
     $namaTindakan = trim($_POST['nama_tindakan'] ?? '');
     $icon = trim($_POST['icon'] ?? '🩺');
     if ($icon === '') $icon = '🩺';
-    $kategoriPoli = trim($_POST['kategori_poli'] ?? 'Semua Poli');
+
+    // Tangani pilihan poli terkait (bisa multi checkbox atau 'all')
+    $rawPoliTerkait = $_POST['poli_terkait'] ?? [];
+    if (!is_array($rawPoliTerkait)) {
+        $rawPoliTerkait = [$rawPoliTerkait];
+    }
+    
+    // Jika dicentang 'all' atau tidak ada yang dipilih, default ke 'all'
+    if (in_array('all', $rawPoliTerkait, true) || empty($rawPoliTerkait)) {
+        $idPoliTerkait = 'all';
+        $kategoriPoli = 'Semua Poli';
+    } else {
+        $cleanPolis = array_unique(array_filter(array_map('intval', $rawPoliTerkait)));
+        sort($cleanPolis);
+        if (empty($cleanPolis)) {
+            $idPoliTerkait = 'all';
+            $kategoriPoli = 'Semua Poli';
+        } else {
+            $idPoliTerkait = implode(',', $cleanPolis);
+            $poliNames = [];
+            foreach ($cleanPolis as $pid) {
+                if (isset($poliMap[(string)$pid])) {
+                    $poliNames[] = $poliMap[(string)$pid];
+                }
+            }
+            $kategoriPoli = !empty($poliNames) ? implode(', ', $poliNames) : 'Poli Terpilih';
+        }
+    }
+
     $keterangan = trim($_POST['keterangan'] ?? '');
     $urutan = (int)($_POST['urutan'] ?? 1);
     $status = in_array($_POST['status'] ?? 'aktif', ['aktif', 'nonaktif'], true) ? $_POST['status'] : 'aktif';
@@ -59,11 +98,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (($_POST['form_target'] ?? '') === 
         if ($action === 'edit' && $idTindakan > 0) {
             $stmtUp = $db->prepare("
                 UPDATE tindakan_pendaftaran 
-                SET nama_tindakan = ?, icon = ?, kategori_poli = ?, keterangan = ?, urutan = ?, status = ?
+                SET nama_tindakan = ?, icon = ?, kategori_poli = ?, id_poli_terkait = ?, keterangan = ?, urutan = ?, status = ?
                 WHERE id_tindakan = ?
             ");
             if ($stmtUp) {
-                $stmtUp->bind_param('ssssisi', $namaTindakan, $icon, $kategoriPoli, $keterangan, $urutan, $status, $idTindakan);
+                $stmtUp->bind_param('sssssisi', $namaTindakan, $icon, $kategoriPoli, $idPoliTerkait, $keterangan, $urutan, $status, $idTindakan);
                 if ($stmtUp->execute()) {
                     $message = 'Perubahan layanan / tindakan pendaftaran berhasil disimpan.';
                 } else {
@@ -74,11 +113,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (($_POST['form_target'] ?? '') === 
             }
         } else {
             $stmtIn = $db->prepare("
-                INSERT INTO tindakan_pendaftaran (nama_tindakan, icon, kategori_poli, keterangan, urutan, status)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO tindakan_pendaftaran (nama_tindakan, icon, kategori_poli, id_poli_terkait, keterangan, urutan, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             ");
             if ($stmtIn) {
-                $stmtIn->bind_param('ssssis', $namaTindakan, $icon, $kategoriPoli, $keterangan, $urutan, $status);
+                $stmtIn->bind_param('sssssis', $namaTindakan, $icon, $kategoriPoli, $idPoliTerkait, $keterangan, $urutan, $status);
                 if ($stmtIn->execute()) {
                     $message = 'Layanan / tindakan pendaftaran baru berhasil ditambahkan!';
                 } else {
@@ -261,28 +300,50 @@ adminPageStart('Pengaturan Pendaftaran Pasien', 'layanan_pendaftaran');
                     <input type="hidden" name="id_tindakan" value="<?= (int)$editData['id_tindakan'] ?>">
                 <?php endif; ?>
 
-                <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));gap:16px;margin-bottom:16px;">
+                <div style="display:grid;grid-template-columns:1fr 110px;gap:16px;margin-bottom:16px;">
                     <div>
                         <label style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;color:#2D253B;">Nama Layanan / Tindakan *</label>
-                        <input type="text" name="nama_tindakan" value="<?= adminEsc($editData['nama_tindakan'] ?? '') ?>" required class="filter-input" style="width:100%;" placeholder="Contoh: Pelayanan Kebidanan &amp; ANC, USG 2D">
+                        <input type="text" name="nama_tindakan" value="<?= adminEsc($editData['nama_tindakan'] ?? '') ?>" required class="filter-input" style="width:100%;" placeholder="Contoh: Pelayanan Kebidanan &amp; ANC, USG 2D, Cek Darah Lengkap">
                     </div>
 
                     <div>
-                        <label style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;color:#2D253B;">Kategori / Kaitan Poli *</label>
-                        <select name="kategori_poli" class="filter-input" style="width:100%;background:#fff;">
-                            <?php 
-                            $polis = ['Semua Poli', 'Poli Kebidanan & Kandungan', 'Poli Umum', 'Poli Gigi', 'Poli KIA & Anak'];
-                            $curPoli = $editData['kategori_poli'] ?? 'Semua Poli';
-                            foreach ($polis as $p): ?>
-                                <option value="<?= adminEsc($p) ?>" <?= $curPoli === $p ? 'selected' : '' ?>><?= adminEsc($p) ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-
-                    <div style="max-width:130px;">
                         <label style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;color:#2D253B;text-align:center;">Emoji / Ikon</label>
                         <input type="text" name="icon" value="<?= adminEsc($editData['icon'] ?? '🩺') ?>" class="filter-input" style="width:100%;text-align:center;font-size:16px;" placeholder="🩺">
                     </div>
+                </div>
+
+                <div style="margin-bottom:18px;">
+                    <label style="font-size:12.5px;font-weight:700;display:block;margin-bottom:8px;color:#2D253B;">
+                        Pilihan Poli Terkait (Muncul di Poli Mana Saja?) *
+                    </label>
+                    <?php 
+                    $curPoliTerkait = $editData['id_poli_terkait'] ?? 'all';
+                    $curPoliArray = ($curPoliTerkait === 'all' || $curPoliTerkait === '') ? ['all'] : explode(',', $curPoliTerkait);
+                    $isAllSelected = in_array('all', $curPoliArray, true);
+                    ?>
+                    <div style="background:#FAF8FD;border:1.5px solid var(--hanania-border);border-radius:12px;padding:14px 18px;display:flex;flex-wrap:wrap;gap:12px 22px;align-items:center;">
+                        <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-weight:700;color:var(--hanania-primary);font-size:13px;">
+                            <input type="checkbox" name="poli_terkait[]" value="all" id="check_all_poli" onchange="toggleAllPoli(this)" <?= $isAllSelected ? 'checked' : '' ?>>
+                            <span>🌐 Semua Poli Pelayanan</span>
+                        </label>
+                        <span style="color:#CBD5E1;">|</span>
+                        <?php foreach ($allPoliList as $po): 
+                            $pid = (string)$po['id_poli'];
+                            $pChecked = $isAllSelected || in_array($pid, $curPoliArray, true);
+                            $iconPoli = '🩺';
+                            if (stripos($po['nama_poli'], 'Gigi') !== false) $iconPoli = '🦷';
+                            elseif (stripos($po['nama_poli'], 'Spesialis') !== false) $iconPoli = '🤰';
+                            elseif (stripos($po['nama_poli'], 'Kebidanan') !== false) $iconPoli = '🤱';
+                        ?>
+                            <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-weight:600;font-size:13px;color:#334155;">
+                                <input type="checkbox" name="poli_terkait[]" value="<?= (int)$po['id_poli'] ?>" class="poli-checkbox" onchange="onPoliCheckboxChange()" <?= $pChecked ? 'checked' : '' ?>>
+                                <span><?= $iconPoli ?> <?= adminEsc($po['nama_poli']) ?></span>
+                            </label>
+                        <?php endforeach; ?>
+                    </div>
+                    <span style="font-size:11.5px;color:var(--hanania-muted);margin-top:6px;display:block;">
+                        💡 <strong>Atur kemunculan tindakan:</strong> Centang poli yang Anda inginkan agar tindakan ini hanya dapat dipilih oleh pasien saat memilih poli tersebut di formulir pendaftaran.
+                    </span>
                 </div>
 
                 <div style="display:grid;grid-template-columns:2fr 1.2fr 130px;gap:16px;margin-bottom:20px;">
@@ -333,7 +394,7 @@ adminPageStart('Pengaturan Pendaftaran Pasien', 'layanan_pendaftaran');
                         <tr>
                             <th style="width:60px;text-align:center;">Urut</th>
                             <th>Ikon &amp; Nama Tindakan / Layanan</th>
-                            <th>Kategori Poli</th>
+                            <th>Poli Terkait</th>
                             <th>Keterangan</th>
                             <th style="width:110px;text-align:center;">Status</th>
                             <th style="width:150px;text-align:center;">Aksi</th>
@@ -355,7 +416,30 @@ adminPageStart('Pengaturan Pendaftaran Pasien', 'layanan_pendaftaran');
                                         </div>
                                     </td>
                                     <td>
-                                        <span class="badge badge-purple"><?= adminEsc($t['kategori_poli']) ?></span>
+                                        <?php
+                                        $pt = $t['id_poli_terkait'] ?? 'all';
+                                        if ($pt === 'all' || $pt === '') {
+                                            echo '<span class="badge badge-purple" style="font-weight:700;">🌐 Semua Poli</span>';
+                                        } else {
+                                            $pIds = explode(',', $pt);
+                                            echo '<div style="display:flex;flex-wrap:wrap;gap:5px;">';
+                                            foreach ($pIds as $pIdItem) {
+                                                $pIdItem = trim($pIdItem);
+                                                if ($pIdItem === '1') {
+                                                    echo '<span class="badge" style="background:#EBF5FF;color:#0052CC;font-weight:700;font-size:11.5px;">🩺 Poli Umum</span>';
+                                                } elseif ($pIdItem === '2') {
+                                                    echo '<span class="badge" style="background:#EBFDF2;color:#0E6245;font-weight:700;font-size:11.5px;">🦷 Poli Gigi</span>';
+                                                } elseif ($pIdItem === '3') {
+                                                    echo '<span class="badge" style="background:#FDF2F8;color:#9D174D;font-weight:700;font-size:11.5px;">🤱 Kebidanan</span>';
+                                                } elseif ($pIdItem === '4') {
+                                                    echo '<span class="badge" style="background:#F5EEFD;color:#6A22A7;font-weight:700;font-size:11.5px;">🤰 Spesialis Kandungan</span>';
+                                                } elseif (isset($poliMap[$pIdItem])) {
+                                                    echo '<span class="badge badge-gray" style="font-size:11.5px;">' . adminEsc($poliMap[$pIdItem]) . '</span>';
+                                                }
+                                            }
+                                            echo '</div>';
+                                        }
+                                        ?>
                                     </td>
                                     <td style="font-size:12.5px;color:var(--hanania-muted);"><?= adminEsc($t['keterangan'] ?: '-') ?></td>
                                     <td style="text-align:center;">
@@ -522,5 +606,24 @@ adminPageStart('Pengaturan Pendaftaran Pasien', 'layanan_pendaftaran');
         </section>
     <?php endif; ?>
 </main>
+
+<script>
+function toggleAllPoli(master) {
+    const boxes = document.querySelectorAll('.poli-checkbox');
+    boxes.forEach(b => {
+        b.checked = master.checked;
+    });
+}
+
+function onPoliCheckboxChange() {
+    const master = document.getElementById('check_all_poli');
+    const boxes = document.querySelectorAll('.poli-checkbox');
+    const total = boxes.length;
+    const checked = Array.from(boxes).filter(b => b.checked).length;
+    if (master) {
+        master.checked = (checked === total);
+    }
+}
+</script>
 
 <?php adminPageEnd(); ?>
