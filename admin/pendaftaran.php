@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/_guard.php';
+require_once __DIR__ . '/../includes/antrean_helper.php';
 
 $message = '';
 $messageType = 'success';
@@ -29,12 +30,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $namaBaru = trim($_POST['nama_pasien_baru'] ?? '');
                 $nikBaru = trim($_POST['nik_pasien_baru'] ?? '');
                 $telpBaru = trim($_POST['telp_pasien_baru'] ?? '');
+                $namaIbuBaru = trim($_POST['nama_ibu_kandung_baru'] ?? '');
+                $namaSuamiBaru = trim($_POST['nama_suami_baru'] ?? '');
                 if ($namaBaru === '') {
                     throw new Exception('Nama pasien baru wajib diisi.');
                 }
-                $stmtNewP = $db->prepare("INSERT INTO pasien (nik, nama_lengkap, no_telepon) VALUES (?, ?, ?)");
+                $stmtNewP = $db->prepare("INSERT INTO pasien (nik, nama_lengkap, no_telepon, nama_ibu_kandung, nama_suami) VALUES (?, ?, ?, ?, ?)");
                 if ($stmtNewP) {
-                    $stmtNewP->bind_param('sss', $nikBaru, $namaBaru, $telpBaru);
+                    $stmtNewP->bind_param('sssss', $nikBaru, $namaBaru, $telpBaru, $namaIbuBaru, $namaSuamiBaru);
                     $stmtNewP->execute();
                     $idPasien = $stmtNewP->insert_id;
                     $stmtNewP->close();
@@ -51,16 +54,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $idBidan = (int)str_replace('bidan_', '', $staffVal);
             }
 
-            // Hitung nomor antrean berikutnya pada hari & poli tersebut
-            $qNext = $db->query("
-                SELECT COALESCE(MAX(a.nomor_antrean), 0) + 1 AS next_no
-                FROM antrean a
-                JOIN pendaftaran p ON p.id_pendaftaran = a.id_pendaftaran
-                WHERE p.tanggal_kunjungan = '$tanggalKunjungan' AND p.id_poli = $idPoli
-            ");
-            $rowNext = $qNext ? $qNext->fetch_assoc() : null;
-            $nomorAntreanNumber = (int)($rowNext['next_no'] ?? 1);
-            if ($nomorAntreanNumber <= 0) $nomorAntreanNumber = 1;
+            // Hitung nomor antrean offline berikutnya dengan pola:
+            // 1-2: Offline, 3-5: Online, 6-7: Offline, 8-10: Online, dst.
+            $calcAntrean = hitungNomorAntreanBerikutnya($db, $tanggalKunjungan, $idPoli, $idDokter, $idBidan, 'offline', $sesiKunjungan);
+            $nomorAntreanNumber = $calcAntrean['nomor'];
 
             $jamKunjungan = date('H:i:s');
 
@@ -96,8 +93,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $calcPoin = hitungPoinKunjungan($db, $jenisPasien, $jenisPerawatan, $keluhan, $idPoli);
             $poinDidapat = (int)($calcPoin['poin'] ?? 0);
             $poinTipe = $calcPoin['tipe'] ?? 'Kunjungan';
+            $poinKode = $calcPoin['kode'] ?? 'biasa';
             if ($poinDidapat > 0 && $idPasien > 0) {
                 $db->query("UPDATE pasien SET reward_poin = COALESCE(reward_poin, 0) + $poinDidapat WHERE id_pasien = $idPasien");
+
+                // Catat ke riwayat_poin
+                $qSalOff = $db->query("SELECT reward_poin FROM pasien WHERE id_pasien = $idPasien LIMIT 1");
+                $saldoAkhirOff = ($qSalOff && $rSalOff = $qSalOff->fetch_assoc()) ? (int)$rSalOff['reward_poin'] : $poinDidapat;
+                $kategoriLog = 'kunjungan_' . $poinKode;
+                $ketLog = "Pendaftaran Langsung (Offline): {$poinTipe} (+{$poinDidapat} Poin)";
+                $adminLogName = $_SESSION['nama_lengkap'] ?? $_SESSION['admin_username'] ?? 'Petugas Pendaftaran';
+                $stLogOff = $db->prepare("INSERT INTO riwayat_poin (id_pasien, jenis, jumlah_poin, saldo_akhir, kategori, keterangan, created_by, created_at) VALUES (?, 'tambah', ?, ?, ?, ?, ?, NOW())");
+                if ($stLogOff) {
+                    $stLogOff->bind_param('isisss', $idPasien, $poinDidapat, $saldoAkhirOff, $kategoriLog, $ketLog, $adminLogName);
+                    $stLogOff->execute();
+                    $stLogOff->close();
+                }
             }
 
             $message = "Antrean offline berhasil ditambahkan! Nomor antrean: #" . str_pad((string)$nomorAntreanNumber, 3, '0', STR_PAD_LEFT) . " (Pasien mendapatkan +{$poinDidapat} Poin: {$poinTipe})";
@@ -201,7 +212,7 @@ $whereClause = !empty($where) ? 'WHERE ' . implode(' AND ', $where) : '';
 
 $sql = "
     SELECT p.*,
-           pa.nama_lengkap, pa.nik, pa.tanggal_lahir, pa.jenis_kelamin,
+           pa.nama_lengkap, pa.nik, pa.nama_ibu_kandung, pa.nama_suami, pa.nama_ayah_kandung, pa.tanggal_lahir, pa.jenis_kelamin,
            pa.no_telepon, pa.email, pa.alamat, pa.pekerjaan, pa.status_perkawinan,
            pa.pendidikan_terakhir, pa.agama, pa.ada_rujukan, pa.asal_rujukan AS asal_rujukan_pasien,
            po.nama_poli,
@@ -492,6 +503,16 @@ adminPageStart('Data Pendaftaran', 'pendaftaran');
                         <label style="font-size:11px;font-weight:700;display:block;margin-bottom:4px;">Nomor Telepon / WhatsApp</label>
                         <input type="text" name="telp_pasien_baru" placeholder="08xxxxxxxxxx" class="filter-input" style="width:100%;">
                     </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px;">
+                        <div>
+                            <label style="font-size:11px;font-weight:700;display:block;margin-bottom:4px;">Nama Ibu Kandung (opsional)</label>
+                            <input type="text" name="nama_ibu_kandung_baru" placeholder="Nama ibu kandung" class="filter-input" style="width:100%;">
+                        </div>
+                        <div>
+                            <label style="font-size:11px;font-weight:700;display:block;margin-bottom:4px;">Nama Suami / Pasangan (opsional)</label>
+                            <input type="text" name="nama_suami_baru" placeholder="Nama suami (jika ada)" class="filter-input" style="width:100%;">
+                        </div>
+                    </div>
                 </div>
 
                 <!-- POLI & DOKTER -->
@@ -684,6 +705,14 @@ adminPageStart('Data Pendaftaran', 'pendaftaran');
                             <span id="detAgama" style="color:#0F172A;">-</span>
                         </div>
                         <div>
+                            <span style="font-size:11px;color:#64748B;display:block;font-weight:700;">Nama Ibu Kandung</span>
+                            <span id="detNamaIbu" style="color:#0F172A;font-weight:600;">-</span>
+                        </div>
+                        <div>
+                            <span id="lblDetNamaSuami" style="font-size:11px;color:#64748B;display:block;font-weight:700;">Nama Suami / Ayah Kandung</span>
+                            <span id="detNamaSuami" style="color:#0F172A;font-weight:600;">-</span>
+                        </div>
+                        <div>
                             <span style="font-size:11px;color:#64748B;display:block;font-weight:700;">Pendidikan Terakhir</span>
                             <span id="detPendidikan" style="color:#0F172A;">-</span>
                         </div>
@@ -819,6 +848,10 @@ function bukaModalDetailPendaftaran(d) {
     document.getElementById('detAgama').textContent = d.agama || '-';
     document.getElementById('detPendidikan').textContent = d.pendidikan_terakhir || '-';
     document.getElementById('detPekerjaan').textContent = d.pekerjaan || '-';
+    document.getElementById('detNamaIbu').textContent = d.nama_ibu_kandung || '-';
+    const isBelumNikahP = (!d.status_perkawinan || d.status_perkawinan === 'Belum Menikah');
+    if (document.getElementById('lblDetNamaSuami')) document.getElementById('lblDetNamaSuami').textContent = isBelumNikahP ? 'Nama Ayah Kandung' : 'Nama Suami / Pasangan';
+    document.getElementById('detNamaSuami').textContent = isBelumNikahP ? (d.nama_ayah_kandung || d.nama_suami || '-') : (d.nama_suami || d.nama_ayah_kandung || '-');
     document.getElementById('detAlamat').textContent = d.alamat || '-';
 
     // Keluhan & Rujukan

@@ -160,6 +160,108 @@ if (isset($_GET['toggle_field_wajib'])) {
     }
 }
 
+// Handle Hapus Field Kustom
+if (isset($_GET['hapus_field'])) {
+    $idHapusField = (int)$_GET['hapus_field'];
+    $tab = 'fields';
+    $stmtCek = $db->prepare("SELECT id_field, nama_field, label_field, is_custom FROM pengaturan_form_pendaftaran WHERE id_field = ? LIMIT 1");
+    if ($stmtCek) {
+        $stmtCek->bind_param('i', $idHapusField);
+        $stmtCek->execute();
+        $fRow = $stmtCek->get_result()->fetch_assoc();
+        $stmtCek->close();
+
+        if ($fRow && (int)($fRow['is_custom'] ?? 0) === 1) {
+            $stmtDelF = $db->prepare("DELETE FROM pengaturan_form_pendaftaran WHERE id_field = ?");
+            if ($stmtDelF) {
+                $stmtDelF->bind_param('i', $idHapusField);
+                $stmtDelF->execute();
+                $stmtDelF->close();
+                $message = "Kolom data formulir '{$fRow['label_field']}' berhasil dihapus.";
+            }
+        } else {
+            $message = 'Field bawaan sistem tidak dapat dihapus, namun visibilitasnya dapat Anda nonaktifkan.';
+            $messageType = 'danger';
+        }
+    }
+}
+
+// Handle Tambah Field Baru
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (($_POST['form_target'] ?? '') === 'tambah_field')) {
+    $labelField = trim($_POST['label_field'] ?? '');
+    $namaFieldInput = trim($_POST['nama_field'] ?? '');
+    $keterangan = trim($_POST['keterangan'] ?? '');
+    $tahap = in_array((int)($_POST['tahap'] ?? 1), [1, 2], true) ? (int)$_POST['tahap'] : 1;
+    $wajib = (int)($_POST['wajib'] ?? 0);
+    $status = in_array($_POST['status'] ?? 'aktif', ['aktif', 'nonaktif'], true) ? $_POST['status'] : 'aktif';
+    $tab = 'fields';
+
+    if ($labelField === '') {
+        $message = 'Label data formulir wajib diisi.';
+        $messageType = 'danger';
+    } else {
+        // Buat slug nama_field jika tidak diisi
+        if ($namaFieldInput === '') {
+            $slug = strtolower($labelField);
+            $slug = preg_replace('/[^a-z0-9]+/', '_', $slug);
+            $slug = trim($slug, '_');
+        } else {
+            $slug = strtolower($namaFieldInput);
+            $slug = preg_replace('/[^a-z0-9_]+/', '_', $slug);
+            $slug = trim($slug, '_');
+        }
+
+        if (strlen($slug) < 2) {
+            $slug = 'custom_' . time();
+        }
+
+        // Cek apakah nama_field sudah ada
+        $stmtCekExist = $db->prepare("SELECT id_field FROM pengaturan_form_pendaftaran WHERE nama_field = ? LIMIT 1");
+        $stmtCekExist->bind_param('s', $slug);
+        $stmtCekExist->execute();
+        $isExist = $stmtCekExist->get_result()->fetch_assoc();
+        $stmtCekExist->close();
+
+        if ($isExist) {
+            $message = "Kode data '$slug' sudah digunakan. Silakan gunakan label atau kode lain.";
+            $messageType = 'danger';
+        } else {
+            // Ambil urutan terakhir
+            $qMax = $db->query("SELECT MAX(urutan) AS max_u FROM pengaturan_form_pendaftaran WHERE tahap = $tahap");
+            $maxU = $qMax ? (int)($qMax->fetch_assoc()['max_u'] ?? 10) : 10;
+            $newUrutan = $maxU + 1;
+
+            $stmtInF = $db->prepare("
+                INSERT INTO pengaturan_form_pendaftaran (nama_field, label_field, tahap, status, wajib, urutan, is_custom, keterangan)
+                VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+            ");
+            if ($stmtInF) {
+                $stmtInF->bind_param('ssisiis', $slug, $labelField, $tahap, $status, $wajib, $newUrutan, $keterangan);
+                if ($stmtInF->execute()) {
+                    $stmtInF->close();
+
+                    // Tambahkan kolom di tabel pasien dan keluarga_pasien jika belum ada
+                    $cleanCol = preg_replace('/[^a-z0-9_]/', '', $slug);
+                    $chkP = $db->query("SHOW COLUMNS FROM pasien LIKE '$cleanCol'");
+                    if ($chkP && $chkP->num_rows === 0) {
+                        $db->query("ALTER TABLE pasien ADD COLUMN `$cleanCol` VARCHAR(255) NULL");
+                    }
+                    $chkK = $db->query("SHOW COLUMNS FROM keluarga_pasien LIKE '$cleanCol'");
+                    if ($chkK && $chkK->num_rows === 0) {
+                        $db->query("ALTER TABLE keluarga_pasien ADD COLUMN `$cleanCol` VARCHAR(255) NULL");
+                    }
+
+                    $message = "Data baru '$labelField' berhasil ditambahkan ke formulir pendaftaran pasien!";
+                } else {
+                    $message = 'Gagal menambahkan field: ' . $db->error;
+                    $messageType = 'danger';
+                    $stmtInF->close();
+                }
+            }
+        }
+    }
+}
+
 // Handle Simpan Edit Field
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && (($_POST['form_target'] ?? '') === 'field')) {
     $idField = (int)($_POST['id_field'] ?? 0);
@@ -191,6 +293,98 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && (($_POST['form_target'] ?? '') === 
     }
 }
 
+// -------------------------------------------------------------
+// TAB 3: LOGIKA OPERASIONAL & STATUS POLI (24 JAM & TUTUP MANUAL)
+// -------------------------------------------------------------
+
+// Toggle Mode Operasional Cepat (tersedia / ditutup / full_booking / otomatis)
+if (isset($_GET['toggle_poli_mode'])) {
+    $idPoliToggle = (int)$_GET['toggle_poli_mode'];
+    $allowedModes = ['tersedia', 'ditutup', 'full_booking', 'otomatis', 'buka_manual', 'tutup_manual'];
+    $modeBaru = in_array($_GET['mode'] ?? '', $allowedModes, true) ? $_GET['mode'] : 'otomatis';
+    $pesanTutup = trim($_GET['pesan'] ?? '');
+
+    $stmtPMode = $db->prepare("UPDATE poli SET status_operasional = ?, pesan_tutup = IF(? != '', ?, pesan_tutup) WHERE id_poli = ?");
+    if ($stmtPMode) {
+        $stmtPMode->bind_param('sssi', $modeBaru, $pesanTutup, $pesanTutup, $idPoliToggle);
+        $stmtPMode->execute();
+        $stmtPMode->close();
+        
+        $modeLabels = [
+            'tersedia' => 'Pendaftaran Tersedia',
+            'buka_manual' => 'Pendaftaran Tersedia',
+            'ditutup' => 'Pendaftaran Ditutup',
+            'tutup_manual' => 'Pendaftaran Ditutup',
+            'full_booking' => 'Full Booking',
+            'otomatis' => 'Otomatis'
+        ];
+        $labelBaru = $modeLabels[$modeBaru] ?? $modeBaru;
+        $message = "Status pendaftaran poli berhasil diubah menjadi: " . $labelBaru;
+        $tab = 'poli';
+    }
+}
+
+// Toggle Status 24 Jam
+if (isset($_GET['toggle_poli_24jam'])) {
+    $idPoli24 = (int)$_GET['toggle_poli_24jam'];
+    $stmtP24 = $db->prepare("UPDATE poli SET is_24jam = IF(is_24jam = 1, 0, 1) WHERE id_poli = ?");
+    if ($stmtP24) {
+        $stmtP24->bind_param('i', $idPoli24);
+        $stmtP24->execute();
+        $stmtP24->close();
+        $message = 'Status pelayanan 24 Jam poli berhasil diperbarui.';
+        $tab = 'poli';
+    }
+}
+
+// Toggle Status Aktif/Nonaktif Poli
+if (isset($_GET['toggle_poli_aktif'])) {
+    $idPoliAktif = (int)$_GET['toggle_poli_aktif'];
+    $stmtPA = $db->prepare("UPDATE poli SET status = IF(status = 'aktif', 'nonaktif', 'aktif') WHERE id_poli = ?");
+    if ($stmtPA) {
+        $stmtPA->bind_param('i', $idPoliAktif);
+        $stmtPA->execute();
+        $stmtPA->close();
+        $message = 'Status keaktifan poli berhasil diperbarui.';
+        $tab = 'poli';
+    }
+}
+
+// Simpan Form Pengaturan Poli (POST)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && (($_POST['form_target'] ?? '') === 'poli')) {
+    $idPoli = (int)($_POST['id_poli'] ?? 0);
+    $namaPoli = trim($_POST['nama_poli'] ?? '');
+    $deskripsi = trim($_POST['deskripsi'] ?? '');
+    $allowedModes = ['tersedia', 'ditutup', 'full_booking', 'otomatis', 'buka_manual', 'tutup_manual'];
+    $statusOperasional = in_array($_POST['status_operasional'] ?? '', $allowedModes, true) ? $_POST['status_operasional'] : 'otomatis';
+    $is24Jam = isset($_POST['is_24jam']) ? 1 : 0;
+    $waktuCutoff = max(0, (int)($_POST['waktu_cutoff_menit'] ?? 60));
+    $pesanTutup = trim($_POST['pesan_tutup'] ?? '');
+    $statusPoli = in_array($_POST['status'] ?? 'aktif', ['aktif', 'nonaktif'], true) ? $_POST['status'] : 'aktif';
+    $tab = 'poli';
+
+    if ($idPoli <= 0 || $namaPoli === '') {
+        $message = 'Data poli tidak valid atau nama poli kosong.';
+        $messageType = 'danger';
+    } else {
+        $stmtUpP = $db->prepare("
+            UPDATE poli 
+            SET nama_poli = ?, deskripsi = ?, status_operasional = ?, is_24jam = ?, waktu_cutoff_menit = ?, pesan_tutup = ?, status = ?
+            WHERE id_poli = ?
+        ");
+        if ($stmtUpP) {
+            $stmtUpP->bind_param('sssiissi', $namaPoli, $deskripsi, $statusOperasional, $is24Jam, $waktuCutoff, $pesanTutup, $statusPoli, $idPoli);
+            if ($stmtUpP->execute()) {
+                $message = "Pengaturan operasional untuk '{$namaPoli}' berhasil diperbarui.";
+            } else {
+                $message = 'Gagal menyimpan pengaturan poli: ' . $db->error;
+                $messageType = 'danger';
+            }
+            $stmtUpP->close();
+        }
+    }
+}
+
 // Data edit tindakan jika ada
 $editData = null;
 if (isset($_GET['edit'])) {
@@ -213,6 +407,17 @@ if (isset($_GET['edit_field'])) {
     }
 }
 
+// Data edit poli jika ada
+$editPoliData = null;
+if (isset($_GET['edit_poli'])) {
+    $idEditP = (int)$_GET['edit_poli'];
+    $resEP = $db->query("SELECT * FROM poli WHERE id_poli = $idEditP LIMIT 1");
+    if ($resEP && $resEP->num_rows > 0) {
+        $editPoliData = $resEP->fetch_assoc();
+        $tab = 'poli';
+    }
+}
+
 // Ambil daftar tindakan
 $dataTindakan = [];
 $resAll = $db->query("SELECT * FROM tindakan_pendaftaran ORDER BY urutan ASC, id_tindakan ASC");
@@ -228,6 +433,15 @@ $resFields = $db->query("SELECT * FROM pengaturan_form_pendaftaran ORDER BY taha
 if ($resFields) {
     while ($r = $resFields->fetch_assoc()) {
         $dataFields[] = $r;
+    }
+}
+
+// Ambil daftar poli lengkap
+$dataPoliLengkap = [];
+$resPolis = $db->query("SELECT * FROM poli ORDER BY id_poli ASC");
+if ($resPolis) {
+    while ($rp = $resPolis->fetch_assoc()) {
+        $dataPoliLengkap[] = $rp;
     }
 }
 
@@ -529,6 +743,77 @@ adminPageStart('Pengaturan Pendaftaran Pasien', 'layanan_pendaftaran');
             </section>
         <?php endif; ?>
 
+        <!-- FORM TAMBAH DATA BARU YANG DIMINTA -->
+        <section class="admin-card" style="margin-bottom:24px;" id="boxTambahField">
+            <div class="admin-card-head" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+                <div>
+                    <h3 class="admin-card-title">
+                        <span>➕</span> Tambah Data Baru yang Diminta dari Pasien
+                    </h3>
+                    <p class="admin-card-subtitle">
+                        Tambahkan kolom data baru yang ingin diminta dari pasien saat pendaftaran (misal: Nomor BPJS, Golongan Darah, Alergi Obat, dll). Kolom akan otomatis dibuat pada basis data.
+                    </p>
+                </div>
+                <button type="button" class="btn btn-sm" onclick="document.getElementById('formTambahFieldBody').style.display = (document.getElementById('formTambahFieldBody').style.display === 'none' ? 'block' : 'none')" style="background:var(--hanania-primary);color:#fff;">
+                    <span>✨</span> Form Tambah Data Baru
+                </button>
+            </div>
+
+            <div id="formTambahFieldBody" style="display:none;padding-top:16px;border-top:1px solid #F4EEFB;">
+                <form action="layanan_pendaftaran.php?tab=fields" method="POST">
+                    <input type="hidden" name="form_target" value="tambah_field">
+
+                    <div style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;gap:16px;margin-bottom:16px;">
+                        <div>
+                            <label style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;color:#2D253B;">Label Formulir Pasien *</label>
+                            <input type="text" name="label_field" placeholder="Contoh: Nomor Kartu BPJS / Asuransi" required class="filter-input" style="width:100%;">
+                        </div>
+
+                        <div>
+                            <label style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;color:#2D253B;">Kode Kolom (Opsional)</label>
+                            <input type="text" name="nama_field" placeholder="Otomatis dari label jika kosong" class="filter-input" style="width:100%;">
+                        </div>
+
+                        <div>
+                            <label style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;color:#2D253B;">Tahap Formulir</label>
+                            <select name="tahap" class="filter-input" style="width:100%;background:#fff;font-weight:600;">
+                                <option value="1">Langkah 1: Data Diri</option>
+                                <option value="2">Langkah 2: Layanan &amp; Keluhan</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;color:#2D253B;">Sifat Kewajiban</label>
+                            <select name="wajib" class="filter-input" style="width:100%;background:#fff;font-weight:600;">
+                                <option value="0">Opsional (Boleh Kosong)</option>
+                                <option value="1">Wajib Diisi (*)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div style="margin-bottom:20px;">
+                        <label style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;color:#2D253B;">Petunjuk / Teks Bantuan Pasien</label>
+                        <input type="text" name="keterangan" placeholder="Contoh: Masukkan 13 digit nomor BPJS Kesehatan aktif Anda" class="filter-input" style="width:100%;">
+                    </div>
+
+                    <div style="display:flex;justify-content:flex-end;gap:10px;padding-top:14px;border-top:1px solid #F4EEFB;">
+                        <button type="button" class="btn btn-sm btn-light" onclick="document.getElementById('formTambahFieldBody').style.display='none'">Tutup</button>
+                        <button type="submit" class="btn btn-sm" style="background:var(--hanania-primary);color:#fff;box-shadow:0 4px 14px rgba(79,50,147,.22);padding:9px 20px;">
+                            <span>➕</span> Tambahkan Data ke Formulir
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <!-- INFO BANNER LOGIKA DATA DIRI -->
+        <div style="background:#FAF8FD;border:1.5px solid #E8DEF5;border-radius:14px;padding:14px 18px;margin-bottom:20px;display:flex;gap:14px;align-items:center;">
+            <span style="font-size:24px;">💡</span>
+            <div style="font-size:12.5px;color:#5A4B70;line-height:1.5;">
+                <strong>Logika Dinamis Data Pasien:</strong> Pasien yang <strong>belum menikah</strong> atau <strong>pasien anak (&lt; 17 tahun)</strong> pada formulir pendaftaran secara cerdas menampilkan <strong>Nama Ayah Kandung</strong>. Sedangkan pasien yang sudah menikah menampilkan <strong>Nama Suami / Pasangan</strong>. <strong>Nama Ibu Kandung</strong> tetap ditampilkan standar untuk semua pasien.
+            </div>
+        </div>
+
         <!-- TABEL DATA FORMULIR PASIEN -->
         <section class="admin-card">
             <div class="admin-card-head">
@@ -547,14 +832,17 @@ adminPageStart('Pengaturan Pendaftaran Pasien', 'layanan_pendaftaran');
                             <th style="width:60px;text-align:center;">Urut</th>
                             <th>Nama Data / Field Identitas</th>
                             <th>Tahap Form</th>
+                            <th>Tipe Data</th>
                             <th>Petunjuk Pasien</th>
                             <th style="width:130px;text-align:center;">Sifat Field</th>
                             <th style="width:120px;text-align:center;">Visibilitas</th>
-                            <th style="width:100px;text-align:center;">Aksi</th>
+                            <th style="width:120px;text-align:center;">Aksi</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($dataFields as $f): ?>
+                        <?php foreach ($dataFields as $f): 
+                            $isCustom = (int)($f['is_custom'] ?? 0) === 1;
+                        ?>
                             <tr>
                                 <td style="text-align:center;font-weight:800;color:var(--hanania-muted);"><?= (int)$f['urutan'] ?></td>
                                 <td>
@@ -569,6 +857,13 @@ adminPageStart('Pengaturan Pendaftaran Pasien', 'layanan_pendaftaran');
                                     <span class="badge badge-purple">
                                         <?= (int)$f['tahap'] === 1 ? 'Langkah 1: Data Diri' : 'Langkah 2: Layanan & Keluhan' ?>
                                     </span>
+                                </td>
+                                <td>
+                                    <?php if ($isCustom): ?>
+                                        <span class="badge" style="background:#FDF2F8;color:#9D174D;border:1px solid #FBCFE8;font-size:11px;font-weight:700;">✨ Kustom Admin</span>
+                                    <?php else: ?>
+                                        <span class="badge" style="background:#F3F4F6;color:#4B5563;border:1px solid #E5E7EB;font-size:11px;font-weight:600;">🛡️ Bawaan Sistem</span>
+                                    <?php endif; ?>
                                 </td>
                                 <td style="font-size:12px;color:var(--hanania-muted);"><?= adminEsc($f['keterangan'] ?: '-') ?></td>
                                 <td style="text-align:center;">
@@ -594,9 +889,16 @@ adminPageStart('Pengaturan Pendaftaran Pasien', 'layanan_pendaftaran');
                                     <?php endif; ?>
                                 </td>
                                 <td style="text-align:center;">
-                                    <a href="layanan_pendaftaran.php?tab=fields&edit_field=<?= (int)$f['id_field'] ?>#editFieldBox" class="btn btn-sm btn-light" style="padding:4px 10px;font-size:12px;">
-                                        ✏️ Edit
-                                    </a>
+                                    <div style="display:inline-flex;gap:5px;">
+                                        <a href="layanan_pendaftaran.php?tab=fields&edit_field=<?= (int)$f['id_field'] ?>#editFieldBox" class="btn btn-sm btn-light" style="padding:4px 9px;font-size:12px;" title="Edit Pengaturan Data">
+                                            ✏️
+                                        </a>
+                                        <?php if ($isCustom): ?>
+                                            <a href="layanan_pendaftaran.php?tab=fields&hapus_field=<?= (int)$f['id_field'] ?>" onclick="return confirm('Apakah Anda yakin ingin menghapus data kolom ini dari formulir?')" class="btn btn-sm btn-danger" style="padding:4px 8px;font-size:12px;" title="Hapus Field Kustom">
+                                                🗑️
+                                            </a>
+                                        <?php endif; ?>
+                                    </div>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -605,6 +907,7 @@ adminPageStart('Pengaturan Pendaftaran Pasien', 'layanan_pendaftaran');
             </div>
         </section>
     <?php endif; ?>
+
 </main>
 
 <script>
@@ -624,6 +927,7 @@ function onPoliCheckboxChange() {
         master.checked = (checked === total);
     }
 }
+
 </script>
 
 <?php adminPageEnd(); ?>

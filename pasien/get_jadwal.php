@@ -6,6 +6,8 @@ date_default_timezone_set('Asia/Jakarta');
 header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../includes/poli_helper.php';
+require_once __DIR__ . '/../includes/antrean_helper.php';
 $db = $conn ?? $koneksi ?? null;
 if (!$db instanceof mysqli) {
     echo json_encode(['success' => false, 'error' => 'Koneksi database tidak ditemukan.']);
@@ -74,7 +76,7 @@ $queries = [
          FROM jadwal_dokter jd
          INNER JOIN dokter d ON d.id_dokter = jd.id_dokter
          LEFT JOIN poli p ON p.id_poli = jd.id_poli
-         WHERE d.status = 'aktif' AND jd.status = 'tersedia' AND LOWER(TRIM(jd.hari)) = LOWER(?)",
+         WHERE d.status = 'aktif' AND LOWER(TRIM(jd.hari)) = LOWER(?)",
         'Dokter'
     ],
     [
@@ -83,7 +85,7 @@ $queries = [
          FROM jadwal_bidan jb
          INNER JOIN bidan b ON b.id_bidan = jb.id_bidan
          LEFT JOIN poli p ON p.id_poli = jb.id_poli
-         WHERE b.status = 'aktif' AND jb.status = 'tersedia' AND LOWER(TRIM(jb.hari)) = LOWER(?)",
+         WHERE b.status = 'aktif' AND LOWER(TRIM(jb.hari)) = LOWER(?)",
         'Bidan'
     ]
 ];
@@ -146,14 +148,19 @@ foreach ($queries as [$sql, $jenis]) {
         }
 
         // 2. Hitung Nomor Antrean Online berdasarkan aturan urutan:
-        // Pola: 2 offline lalu 1 online yang menggunakan 3 nomor
-        // Online 1 -> 003 (range 003–005)
-        // Online 2 -> 008 (range 008–010)
-        // Online k -> (k * 5) - 2
-        $onlineIndex = $onlineBefore + 1;
-        $nomorAntreanNumber = ($onlineIndex * 5) - 2;
-        $nomorAntreanFormatted = str_pad((string)$nomorAntreanNumber, 3, '0', STR_PAD_LEFT);
-        $nomorAntreanRange = $nomorAntreanFormatted . '–' . str_pad((string)($nomorAntreanNumber + 2), 3, '0', STR_PAD_LEFT);
+        // Pola: 1-2 offline, 3-5 online, 6-7 offline, 8-10 online, dst.
+        $calcAntrean = hitungNomorAntreanBerikutnya(
+            $db,
+            $tanggal,
+            $idPoli,
+            ($jenis === 'Dokter' ? $idTenaga : null),
+            ($jenis === 'Bidan' ? $idTenaga : null),
+            'online',
+            $jamMulai
+        );
+        $nomorAntreanNumber = $calcAntrean['nomor'];
+        $nomorAntreanFormatted = $calcAntrean['format'];
+        $nomorAntreanRange = $nomorAntreanFormatted;
 
         // 3. Hitung Estimasi Pelayanan Otomatis:
         // 1 Pasien = 1 pendaftaran = 15-20 menit pelayanan
@@ -176,23 +183,50 @@ foreach ($queries as [$sql, $jenis]) {
         $waktuTungguMenit = 15;
         $waktuTungguLabel = '± 15 menit';
 
-        // Cek ketersediaan kuota / batas operasional dokter
+        // Cek ketersediaan kuota & status operasional poli (tutup 1 jam sebelum selesai, persalinan 24 jam nonstop)
+        $allPoliMap = getAllPoliMap($db);
+        $poliData = $allPoliMap[$idPoli] ?? ['id_poli' => $idPoli, 'nama_poli' => $namaPoli];
+        $targetLayanan = trim($_GET['layanan'] ?? '');
+        $statusCheck = cekStatusJadwalPoli($poliData, $jamMulai, $jamSelesai, $isToday, $targetLayanan);
+
         $available = true;
-        $keterangan = 'Tersedia';
+        $keterangan = 'Pendaftaran Tersedia';
+        $statusLabel = 'Pendaftaran Tersedia';
+
+        $scheduleStatus = strtolower(trim((string)($row['status'] ?? 'tersedia')));
 
         if ($isPast) {
             $available = false;
-            $keterangan = 'Tanggal pemeriksaan sudah berlalu';
+            $keterangan = 'Pendaftaran Ditutup (Tanggal kunjungan sudah berlalu)';
+            $statusLabel = 'Pendaftaran Ditutup';
+        } elseif ($scheduleStatus === 'ditutup' || $scheduleStatus === 'tidak_tersedia' || $scheduleStatus === 'nonaktif') {
+            $available = false;
+            $keterangan = 'Pendaftaran Ditutup (Jadwal Tenaga Medis Sedang Ditutup)';
+            $statusLabel = 'Pendaftaran Ditutup';
+        } elseif ($scheduleStatus === 'cuti') {
+            $available = false;
+            $keterangan = 'Pendaftaran Ditutup (Tenaga Medis Sedang Cuti / Libur Praktik)';
+            $statusLabel = 'Cuti / Libur';
+        } elseif ($scheduleStatus === 'full_booking' || ($statusCheck['status_operasional'] ?? '') === 'full_booking') {
+            $available = false;
+            $keterangan = 'Full Booking (Kuota Praktik Telah Penuh)';
+            $statusLabel = 'Full Booking';
+        } elseif ($statusCheck['is_24jam']) {
+            $available = true;
+            $keterangan = 'Pendaftaran Tersedia (Layanan Persalinan 24 Jam Selalu Siaga Nonstop)';
+            $statusLabel = 'Pendaftaran Tersedia';
+        } elseif ($statusCheck['is_closed']) {
+            $available = false;
+            $keterangan = $statusCheck['keterangan'] ?: 'Pendaftaran Ditutup';
+            $statusLabel = $statusCheck['status_label'] ?: 'Pendaftaran Ditutup';
         } elseif ($serviceStartTs >= $doctorEndTs) {
             $available = false;
-            $keterangan = 'Kuota antrean hari ini sudah penuh sesuai jam praktik dokter';
-        } elseif ($isToday) {
-            // Jika hari ini, pendaftaran ditutup 1 jam sebelum estimasi pelayanan atau jika sudah lewat
-            $cutoffTs = $serviceStartTs - (60 * 60);
-            if ($now->getTimestamp() >= $cutoffTs) {
-                $available = false;
-                $keterangan = 'Pendaftaran online ditutup (minimal 1 jam sebelum estimasi pelayanan)';
-            }
+            $keterangan = 'Full Booking';
+            $statusLabel = 'Full Booking';
+        } else {
+            $available = true;
+            $keterangan = $statusCheck['keterangan'] ?: 'Pendaftaran Tersedia';
+            $statusLabel = 'Pendaftaran Tersedia';
         }
 
         $jadwalTersisaMinggu = [];
@@ -268,6 +302,8 @@ foreach ($queries as [$sql, $jenis]) {
             'waktu_tunggu_label' => $waktuTungguLabel,
             'antrean_di_depan' => $countBefore,
             'tersedia' => $available,
+            'status_label' => $statusLabel,
+            'is_24jam' => (bool)$statusCheck['is_24jam'],
             'keterangan_ketersediaan' => $keterangan,
             'sesi' => $sesiList,
             'jadwal_tersisa_minggu' => $jadwalTersisaMinggu

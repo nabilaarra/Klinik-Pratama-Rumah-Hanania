@@ -142,7 +142,7 @@ $layaniAwalLabel = date('H:i', $tsMulai);
 $layaniAkhirLabel = date('H:i', $tsSelesai);
 $datangLabel = date('H:i', $tsDatang);
 
-$nomorAntreanRange = str_pad((string)$nomorAntrean, 3, '0', STR_PAD_LEFT) . '–' . str_pad((string)($nomorAntrean + 2), 3, '0', STR_PAD_LEFT);
+$nomorAntreanRange = $nomorAntreanFormat;
 
 $estimasiMenunggu = '± 15 menit';
 

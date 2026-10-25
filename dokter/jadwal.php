@@ -2,10 +2,12 @@
 session_start();
 date_default_timezone_set('Asia/Jakarta');
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../includes/poli_helper.php';
 if (isset($conn) && $conn instanceof mysqli) $db = $conn; 
 elseif (isset($koneksi) && $koneksi instanceof mysqli) $db = $koneksi; 
 else die('Koneksi database tidak ditemukan.');
 $db->set_charset('utf8mb4');
+$allPoliMap = getAllPoliMap($db);
 
 function eJ($v) { return htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8'); }
 function jamJ($v) { return substr((string)$v, 0, 5); }
@@ -56,7 +58,7 @@ if ($filterBidanId <= 0) {
     $docFilterSql = ($filterDokterId > 0) ? " AND jd.id_dokter = $filterDokterId " : "";
     $q = $db->query("
         SELECT jd.id_dokter AS id_tenaga, d.nama_dokter AS nama_tenaga, d.spesialisasi AS peran,
-               p.nama_poli, jd.hari, jd.jam_mulai, jd.jam_selesai, jd.status, 'Dokter' AS jenis, d.status AS status_tenaga
+               jd.id_poli, p.nama_poli, jd.hari, jd.jam_mulai, jd.jam_selesai, jd.status, 'Dokter' AS jenis, d.status AS status_tenaga
         FROM jadwal_dokter jd
         INNER JOIN dokter d ON d.id_dokter = jd.id_dokter
         INNER JOIN poli p ON p.id_poli = jd.id_poli
@@ -73,7 +75,7 @@ if ($filterDokterId <= 0) {
     $bidFilterSql = ($filterBidanId > 0) ? " AND jb.id_bidan = $filterBidanId " : "";
     $q = $db->query("
         SELECT jb.id_bidan AS id_tenaga, b.nama_bidan AS nama_tenaga, 'Bidan' AS peran,
-               p.nama_poli, jb.hari, jb.jam_mulai, jb.jam_selesai, jb.status, 'Bidan' AS jenis, b.status AS status_tenaga
+               jb.id_poli, p.nama_poli, jb.hari, jb.jam_mulai, jb.jam_selesai, jb.status, 'Bidan' AS jenis, b.status AS status_tenaga
         FROM jadwal_bidan jb
         INNER JOIN bidan b ON b.id_bidan = jb.id_bidan
         INNER JOIN poli p ON p.id_poli = jb.id_poli
@@ -411,20 +413,11 @@ foreach ($data as $r) {
                                 <th style="text-align:right;">Aksi</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            <?php foreach ($listHari as $row): 
+                                <?php foreach ($listHari as $row): 
                                 $isStaffCuti = (($row['status_tenaga'] ?? '') === 'cuti');
-                                $isClosedTime = false;
-                                if ($isToday) {
-                                    $nowTs = time();
-                                    $startTs = strtotime(date('Y-m-d') . ' ' . $row['jam_mulai']);
-                                    $endTs = strtotime(date('Y-m-d') . ' ' . $row['jam_selesai']);
-                                    // Pendaftaran ditutup otomatis jika sudah masuk 1 jam sebelum jadwal mulai atau jadwal sudah selesai
-                                    if ($nowTs >= ($startTs - 3600) || $nowTs >= $endTs) {
-                                        $isClosedTime = true;
-                                    }
-                                }
-                                $isClosed = ($isClosedTime || ($row['status'] ?? 'tersedia') !== 'tersedia');
+                                $poliItem = $allPoliMap[(int)($row['id_poli'] ?? 0)] ?? null;
+                                $statusJadwal = cekStatusJadwalPoli($poliItem, $row['jam_mulai'], $row['jam_selesai'], $isToday, $row['peran'] ?? '');
+                                $isClosed = $statusJadwal['is_closed'] || (($row['status'] ?? 'tersedia') !== 'tersedia');
                             ?>
                                 <tr>
                                     <td>
@@ -434,25 +427,31 @@ foreach ($data as $r) {
                                     <td><?= eJ($row['jenis']) ?></td>
                                     <td><?= eJ($row['nama_poli']) ?></td>
                                     <td>
-                                        <strong><?= jamJ($row['jam_mulai']) ?> – <?= jamJ($row['jam_selesai']) ?> WIB</strong>
+                                        <?php if (!empty($statusJadwal['is_24jam'])): ?>
+                                            <strong style="color:#6D28D9;">Siaga 24 Jam Non-Stop</strong>
+                                        <?php else: ?>
+                                            <strong><?= jamJ($row['jam_mulai']) ?> – <?= jamJ($row['jam_selesai']) ?> WIB</strong>
+                                        <?php endif; ?>
                                     </td>
                                     <td>
                                         <?php if ($isStaffCuti): ?>
                                              <span class="status-cuti">🔴 Sedang Cuti</span>
+                                        <?php elseif (!empty($statusJadwal['is_24jam'])): ?>
+                                             <span class="status" style="background:#EDE9FE;color:#6D28D9;border:1px solid #DDD6FE;font-weight:800;">✨ 24 Jam</span>
                                         <?php elseif ($isClosed): ?>
-                                             <span class="status-cuti" style="background:#FEE2E2;color:#991B1B;border:1px solid #FECACA;">⛔ Ditutup</span>
+                                             <span class="status-cuti" style="background:#FEE2E2;color:#991B1B;border:1px solid #FECACA;" title="<?= eJ($statusJadwal['message']) ?>">⛔ Ditutup (1 Jam Sblm Selesai)</span>
                                         <?php else: ?>
-                                            <span class="status">Tersedia</span>
+                                             <span class="status">Tersedia</span>
                                         <?php endif; ?>
                                     </td>
                                     <td style="text-align:right;">
                                         <?php if ($isStaffCuti): ?>
                                             <button type="button" class="btn-daftar-row" style="background:#FEE2E2;color:#DC2626;cursor:not-allowed;border:1px solid #FCA5A5;box-shadow:none;" disabled>Sedang Cuti</button>
                                         <?php elseif ($isClosed): ?>
-                                            <button type="button" class="btn-daftar-row" style="background:#F3F4F6;color:#9CA3AF;cursor:not-allowed;border:1px solid #E5E7EB;box-shadow:none;" disabled title="Pendaftaran ditutup minimal 1 jam sebelum pelayanan">⛔ Ditutup</button>
+                                            <button type="button" class="btn-daftar-row" style="background:#F3F4F6;color:#9CA3AF;cursor:not-allowed;border:1px solid #E5E7EB;box-shadow:none;" disabled title="<?= eJ($statusJadwal['message']) ?>">⛔ Ditutup</button>
                                         <?php else: ?>
-                                            <a class="btn-daftar-row" href="../pasien/daftar.php?<?= strtolower($row['jenis']) ?>=<?= (int)$row['id_tenaga'] ?>">
-                                                Daftar &rarr;
+                                            <a class="btn-daftar-row" href="../pasien/daftar.php?<?= strtolower($row['jenis']) ?>=<?= (int)$row['id_tenaga'] ?><?= !empty($statusJadwal['is_24jam']) ? '&layanan=persalinan' : '' ?>">
+                                                <?= !empty($statusJadwal['is_24jam']) ? 'Daftar Persalinan &rarr;' : 'Daftar &rarr;' ?>
                                             </a>
                                         <?php endif; ?>
                                     </td>
@@ -466,16 +465,9 @@ foreach ($data as $r) {
                 <div class="schedule-mobile-list">
                     <?php foreach ($listHari as $row): 
                         $isStaffCuti = (($row['status_tenaga'] ?? '') === 'cuti');
-                        $isClosedTime = false;
-                        if ($isToday) {
-                            $nowTs = time();
-                            $startTs = strtotime(date('Y-m-d') . ' ' . $row['jam_mulai']);
-                            $endTs = strtotime(date('Y-m-d') . ' ' . $row['jam_selesai']);
-                            if ($nowTs >= ($startTs - 3600) || $nowTs >= $endTs) {
-                                $isClosedTime = true;
-                            }
-                        }
-                        $isClosed = ($isClosedTime || ($row['status'] ?? 'tersedia') !== 'tersedia');
+                        $poliItem = $allPoliMap[(int)($row['id_poli'] ?? 0)] ?? null;
+                        $statusJadwal = cekStatusJadwalPoli($poliItem, $row['jam_mulai'], $row['jam_selesai'], $isToday, $row['peran'] ?? '');
+                        $isClosed = $statusJadwal['is_closed'] || (($row['status'] ?? 'tersedia') !== 'tersedia');
                     ?>
                         <div class="schedule-card-mobile <?= ($isStaffCuti || $isClosed) ? 'is-cuti' : '' ?>">
                             <div class="scm-header">
@@ -486,6 +478,8 @@ foreach ($data as $r) {
                                 <div>
                                     <?php if ($isStaffCuti): ?>
                                         <span class="status-cuti" style="font-size:10px;padding:3px 8px;">🔴 Cuti</span>
+                                    <?php elseif (!empty($statusJadwal['is_24jam'])): ?>
+                                        <span class="status" style="background:#EDE9FE;color:#6D28D9;border:1px solid #DDD6FE;font-size:10px;padding:3px 8px;font-weight:800;">✨ 24 Jam</span>
                                     <?php elseif ($isClosed): ?>
                                         <span class="status-cuti" style="background:#FEE2E2;color:#991B1B;border:1px solid #FECACA;font-size:10px;padding:3px 8px;">⛔ Ditutup</span>
                                     <?php else: ?>
@@ -495,7 +489,12 @@ foreach ($data as $r) {
                             </div>
                             <div class="scm-footer">
                                 <div class="scm-time">
-                                    <span style="font-size:12px;">⏰</span> <strong><?= jamJ($row['jam_mulai']) ?> – <?= jamJ($row['jam_selesai']) ?> WIB</strong>
+                                    <span style="font-size:12px;">⏰</span> 
+                                    <?php if (!empty($statusJadwal['is_24jam'])): ?>
+                                        <strong style="color:#6D28D9;">Siaga 24 Jam Non-Stop</strong>
+                                    <?php else: ?>
+                                        <strong><?= jamJ($row['jam_mulai']) ?> – <?= jamJ($row['jam_selesai']) ?> WIB</strong>
+                                    <?php endif; ?>
                                 </div>
                                 <div>
                                     <?php if ($isStaffCuti): ?>
@@ -503,8 +502,8 @@ foreach ($data as $r) {
                                     <?php elseif ($isClosed): ?>
                                         <button type="button" class="btn-daftar-row" style="background:#F3F4F6;color:#9CA3AF;cursor:not-allowed;border:1px solid #E5E7EB;box-shadow:none;padding:5px 10px;font-size:11px;" disabled>⛔ Ditutup</button>
                                     <?php else: ?>
-                                        <a class="btn-daftar-row" href="../pasien/daftar.php?<?= strtolower($row['jenis']) ?>=<?= (int)$row['id_tenaga'] ?>" style="padding:6px 12px;font-size:11.5px;">
-                                            Daftar &rarr;
+                                        <a class="btn-daftar-row" href="../pasien/daftar.php?<?= strtolower($row['jenis']) ?>=<?= (int)$row['id_tenaga'] ?><?= !empty($statusJadwal['is_24jam']) ? '&layanan=persalinan' : '' ?>" style="padding:6px 12px;font-size:11.5px;">
+                                            <?= !empty($statusJadwal['is_24jam']) ? 'Daftar Persalinan &rarr;' : 'Daftar &rarr;' ?>
                                         </a>
                                     <?php endif; ?>
                                 </div>

@@ -25,6 +25,9 @@ if ($idUser <= 0) {
 
 $nama = trim($_POST['nama_lengkap'] ?? '');
 $nik = trim($_POST['nik'] ?? '');
+$namaIbuKandung = trim($_POST['nama_ibu_kandung'] ?? '');
+$namaSuami = trim($_POST['nama_suami'] ?? '');
+$namaAyahKandung = trim($_POST['nama_ayah_kandung'] ?? '');
 $hubungan = trim($_POST['hubungan'] ?? 'Keluarga');
 $tanggalLahir = trim($_POST['tanggal_lahir'] ?? '');
 $jenisKelamin = trim($_POST['jenis_kelamin'] ?? 'P');
@@ -35,6 +38,26 @@ $pekerjaan = trim($_POST['pekerjaan'] ?? '');
 $statusPerkawinan = trim($_POST['status_perkawinan'] ?? '');
 $pendidikanTerakhir = trim($_POST['pendidikan_terakhir'] ?? '');
 $agama = trim($_POST['agama'] ?? '');
+
+// Logika dinamis keluarga: belum menikah atau anak -> nama ayah kandung
+$isChildKel = false;
+if (!empty($tanggalLahir)) {
+    try {
+        $dobK = new DateTime($tanggalLahir);
+        $diffK = (new DateTime())->diff($dobK)->y;
+        if ($diffK < 17) $isChildKel = true;
+    } catch (Exception $e) {}
+}
+if ($isChildKel || $statusPerkawinan === 'Belum Menikah' || $hubungan === 'Anak') {
+    if ($namaAyahKandung === '' && $namaSuami !== '') {
+        $namaAyahKandung = $namaSuami;
+    }
+    $namaSuami = '';
+} else {
+    if ($namaSuami === '' && $namaAyahKandung !== '') {
+        $namaSuami = $namaAyahKandung;
+    }
+}
 
 if ($nama === '' || $nik === '') {
     echo json_encode(['success' => false, 'message' => 'Nama lengkap dan NIK wajib diisi.']);
@@ -51,6 +74,8 @@ $db->query("CREATE TABLE IF NOT EXISTS keluarga_pasien (
     id_keluarga INT AUTO_INCREMENT PRIMARY KEY,
     id_user INT NOT NULL,
     nama_lengkap VARCHAR(150) NOT NULL,
+    nama_ibu_kandung VARCHAR(100) NULL,
+    nama_suami VARCHAR(100) NULL,
     nik VARCHAR(20) NOT NULL,
     hubungan VARCHAR(50) DEFAULT 'Keluarga',
     tanggal_lahir DATE NULL,
@@ -72,7 +97,7 @@ $idKeluarga = (int)($_POST['id_keluarga'] ?? 0);
 if ($action === 'update' && $idKeluarga > 0) {
     $stmt = $db->prepare("
         UPDATE keluarga_pasien 
-        SET nama_lengkap = ?, nik = ?, tanggal_lahir = ?, jenis_kelamin = ?, 
+        SET nama_lengkap = ?, nama_ibu_kandung = ?, nama_suami = ?, nama_ayah_kandung = ?, nik = ?, tanggal_lahir = ?, jenis_kelamin = ?, 
             no_telepon = ?, email = ?, pekerjaan = ?, status_perkawinan = ?, 
             pendidikan_terakhir = ?, agama = ?, alamat = ?
         WHERE id_keluarga = ? AND id_user = ?
@@ -82,8 +107,11 @@ if ($action === 'update' && $idKeluarga > 0) {
         exit;
     }
     $stmt->bind_param(
-        'sssssssssssii',
+        'ssssssssssssssii',
         $nama,
+        $namaIbuKandung,
+        $namaSuami,
+        $namaAyahKandung,
         $nik,
         $tanggalLahir,
         $jenisKelamin,
@@ -105,6 +133,9 @@ if ($action === 'update' && $idKeluarga > 0) {
             'data' => [
                 'id_keluarga' => $idKeluarga,
                 'nama_lengkap' => $nama,
+                'nama_ibu_kandung' => $namaIbuKandung,
+                'nama_suami' => $namaSuami,
+                'nama_ayah_kandung' => $namaAyahKandung,
                 'nik' => $nik,
                 'hubungan' => $hubungan,
                 'tanggal_lahir' => $tanggalLahir,
@@ -129,8 +160,8 @@ if ($action === 'update' && $idKeluarga > 0) {
 
 $stmt = $db->prepare("
     INSERT INTO keluarga_pasien 
-    (id_user, nama_lengkap, nik, hubungan, tanggal_lahir, jenis_kelamin, no_telepon, email, pekerjaan, status_perkawinan, pendidikan_terakhir, agama, alamat)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (id_user, nama_lengkap, nama_ibu_kandung, nama_suami, nama_ayah_kandung, nik, hubungan, tanggal_lahir, jenis_kelamin, no_telepon, email, pekerjaan, status_perkawinan, pendidikan_terakhir, agama, alamat)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ");
 
 if (!$stmt) {
@@ -139,9 +170,12 @@ if (!$stmt) {
 }
 
 $stmt->bind_param(
-    'issssssssssss',
+    'isssssssssssssss',
     $idUser,
     $nama,
+    $namaIbuKandung,
+    $namaSuami,
+    $namaAyahKandung,
     $nik,
     $hubungan,
     $tanggalLahir,
@@ -165,6 +199,8 @@ if ($stmt->execute()) {
         'data' => [
             'id_keluarga' => $newId,
             'nama_lengkap' => $nama,
+            'nama_ibu_kandung' => $namaIbuKandung,
+            'nama_suami' => $namaSuami,
             'nik' => $nik,
             'hubungan' => $hubungan,
             'tanggal_lahir' => $tanggalLahir,

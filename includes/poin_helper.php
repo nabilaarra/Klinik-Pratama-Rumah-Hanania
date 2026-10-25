@@ -120,3 +120,59 @@ if (!function_exists('hitungPoinKunjungan')) {
         ];
     }
 }
+
+if (!function_exists('getCustomPoinRules')) {
+    /**
+     * Mengambil daftar aturan/kategori poin tambahan yang dapat dikonfigurasi & ditambah di admin.
+     * 
+     * @param mysqli $db
+     * @return array
+     */
+    function getCustomPoinRules($db) {
+        $raw = getPoinSetting($db, 'poin_aturan_kustom_json', '');
+        if (!empty($raw)) {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded) && !empty($decoded)) {
+                return $decoded;
+            }
+        }
+        // Aturan bawaan jika admin belum menambahkan poin lainnya
+        return [
+            [
+                'id' => 'rule_google_review',
+                'nama' => 'Ulasan Google Review Bintang 5',
+                'poin' => 1,
+                'kategori' => 'review_google',
+                'keterangan' => 'Apresiasi pemberian rating bintang 5 di Google Maps Hanania'
+            ],
+            [
+                'id' => 'rule_imunisasi',
+                'nama' => 'Layanan Imunisasi & Vaksinasi Anak',
+                'poin' => 2,
+                'kategori' => 'kunjungan_imunisasi',
+                'keterangan' => 'Kunjungan pemberian imunisasi dan vaksinasi dasar'
+            ],
+            [
+                'id' => 'rule_lab',
+                'nama' => 'Pemeriksaan Laboratorium & Cek Darah',
+                'poin' => 2,
+                'kategori' => 'laboratorium',
+                'keterangan' => 'Pemeriksaan laboratorium penunjang medis'
+            ]
+        ];
+    }
+}
+
+if (!function_exists('saveCustomPoinRules')) {
+    /**
+     * Menyimpan daftar aturan/kategori poin tambahan ke database.
+     * 
+     * @param mysqli $db
+     * @param array $rules
+     * @return bool
+     */
+    function saveCustomPoinRules($db, array $rules) {
+        return setPoinSetting($db, 'poin_aturan_kustom_json', json_encode(array_values($rules), JSON_UNESCAPED_UNICODE));
+    }
+}
+

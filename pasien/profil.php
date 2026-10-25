@@ -18,7 +18,8 @@ if (!$db instanceof mysqli) {
 }
 $db->set_charset('utf8mb4');
 
-$base = '/Klinik-Pratama-Rumah-Hanania';
+$scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
+$base = (stripos($scriptName, '/Klinik-Pratama-Rumah-Hanania') !== false) ? '/Klinik-Pratama-Rumah-Hanania' : '';
 
 // Cek autentikasi pasien
 $idUser = (int)($_SESSION['id_user'] ?? $_SESSION['user']['id_user'] ?? $_SESSION['user_id'] ?? 0);
@@ -106,6 +107,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $statusPerkawinan = trim($_POST['status_perkawinan'] ?? '');
     $pendidikanTerakhir = trim($_POST['pendidikan_terakhir'] ?? '');
     $agama = trim($_POST['agama'] ?? '');
+    $namaIbuKandung = trim($_POST['nama_ibu_kandung'] ?? '');
+    $namaSuami = trim($_POST['nama_suami'] ?? '');
+    $namaAyahKandung = trim($_POST['nama_ayah_kandung'] ?? '');
+
+    // Logika dinamis: belum menikah atau anak -> ayah kandung
+    $isChildP = false;
+    if (!empty($tanggalLahir)) {
+        try {
+            $dobP = new DateTime($tanggalLahir);
+            $diffP = (new DateTime())->diff($dobP)->y;
+            if ($diffP < 17) $isChildP = true;
+        } catch (Exception $e) {}
+    }
+    if ($isChildP || empty($statusPerkawinan) || $statusPerkawinan === 'Belum Menikah') {
+        if ($namaAyahKandung === '' && $namaSuami !== '') {
+            $namaAyahKandung = $namaSuami;
+        }
+        $namaSuami = '';
+    } else {
+        if ($namaSuami === '' && $namaAyahKandung !== '') {
+            $namaSuami = $namaAyahKandung;
+        }
+    }
 
     // Validasi
     if ($namaLengkap === '') {
@@ -207,13 +231,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                                 status_perkawinan = ?,
                                 pendidikan_terakhir = ?,
                                 agama = ?,
+                                nama_ibu_kandung = ?,
+                                nama_suami = ?,
+                                nama_ayah_kandung = ?,
                                 foto = ?" . ($idUser > 0 ? ", id_user = ?" : "") . "
                               WHERE id_pasien = ?";
                 $upStmt = $db->prepare($updateSql);
                 if ($upStmt) {
                     if ($idUser > 0) {
                         $upStmt->bind_param(
-                            'ssssssssssssii',
+                            'sssssssssssssssii',
                             $namaLengkap,
                             $nik,
                             $tanggalLahir,
@@ -225,13 +252,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             $statusPerkawinan,
                             $pendidikanTerakhir,
                             $agama,
+                            $namaIbuKandung,
+                            $namaSuami,
+                            $namaAyahKandung,
                             $fotoPath,
                             $idUser,
                             $idPasien
                         );
                     } else {
                         $upStmt->bind_param(
-                            'ssssssssssssi',
+                            'sssssssssssssssi',
                             $namaLengkap,
                             $nik,
                             $tanggalLahir,
@@ -243,6 +273,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             $statusPerkawinan,
                             $pendidikanTerakhir,
                             $agama,
+                            $namaIbuKandung,
+                            $namaSuami,
+                            $namaAyahKandung,
                             $fotoPath,
                             $idPasien
                         );
@@ -280,12 +313,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                 }
             } else {
                 // Insert baru jika belum ada record pasien
-                $insertSql = "INSERT INTO pasien (id_user, nik, nama_lengkap, tanggal_lahir, jenis_kelamin, no_telepon, email, alamat, pekerjaan, status_perkawinan, pendidikan_terakhir, agama, foto, reward_poin)
-                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 50)";
+                $insertSql = "INSERT INTO pasien (id_user, nik, nama_lengkap, tanggal_lahir, jenis_kelamin, no_telepon, email, alamat, pekerjaan, status_perkawinan, pendidikan_terakhir, agama, nama_ibu_kandung, nama_suami, nama_ayah_kandung, foto, reward_poin)
+                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 50)";
                 $inStmt = $db->prepare($insertSql);
                 if ($inStmt) {
                     $inStmt->bind_param(
-                        'issssssssssss',
+                        'isssssssssssssss',
                         $idUser,
                         $nik,
                         $namaLengkap,
@@ -298,6 +331,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                         $statusPerkawinan,
                         $pendidikanTerakhir,
                         $agama,
+                        $namaIbuKandung,
+                        $namaSuami,
+                        $namaAyahKandung,
                         $fotoPath
                     );
                     $exec = $inStmt->execute();
@@ -394,7 +430,12 @@ function e($val) {
     return htmlspecialchars((string)$val, ENT_QUOTES, 'UTF-8');
 }
 
-$rewardPoin = (int)($pasien['reward_poin'] ?? 50);
+$rewardPoin = (int)($pasien['reward_poin'] ?? 0);
+if (isset($_SESSION['user'])) {
+    $_SESSION['user']['reward_poin'] = $rewardPoin;
+    $_SESSION['user']['poin'] = $rewardPoin;
+}
+$_SESSION['reward_poin'] = $rewardPoin;
 $namaTampil = $pasien['nama_lengkap'] ?? $_SESSION['nama_lengkap'] ?? 'Sahabat Hanania';
 
 // Hitung Inisial & Foto Profil
@@ -1329,6 +1370,21 @@ $tier = 'Sahabat Hanania';
                         <div class="info-value"><?= e($pasien['agama'] ?? '-') ?></div>
                     </div>
 
+                    <div class="info-item">
+                        <span class="info-label">Nama Ibu Kandung</span>
+                        <div class="info-value"><?= e($pasien['nama_ibu_kandung'] ?? '-') ?></div>
+                    </div>
+
+                    <?php
+                    $isBelumNikahView = (empty($pasien['status_perkawinan']) || $pasien['status_perkawinan'] === 'Belum Menikah');
+                    $labelPasangan = $isBelumNikahView ? 'Nama Ayah Kandung' : 'Nama Suami / Pasangan';
+                    $valPasangan = $isBelumNikahView ? ($pasien['nama_ayah_kandung'] ?? $pasien['nama_suami'] ?? '-') : ($pasien['nama_suami'] ?? $pasien['nama_ayah_kandung'] ?? '-');
+                    ?>
+                    <div class="info-item">
+                        <span class="info-label"><?= e($labelPasangan) ?></span>
+                        <div class="info-value"><?= e($valPasangan ?: '-') ?></div>
+                    </div>
+
                     <div class="info-item full-width">
                         <span class="info-label">Alamat Domisili</span>
                         <div class="info-value"><?= nl2br(e($pasien['alamat'] ?? '-')) ?></div>
@@ -1396,6 +1452,35 @@ $tier = 'Sahabat Hanania';
                         </div>
 
                         <div class="form-group">
+                            <label class="form-label" for="status_perkawinan">Status Perkawinan</label>
+                            <?php 
+                            $currKawin = $_POST['status_perkawinan'] ?? $pasien['status_perkawinan'] ?? ''; 
+                            if ($currKawin === 'Kawin') $currKawin = 'Menikah';
+                            if ($currKawin === 'Belum Kawin') $currKawin = 'Belum Menikah';
+                            ?>
+                            <select id="status_perkawinan" name="status_perkawinan" class="form-control">
+                                <option value="">-- Pilih Status Perkawinan --</option>
+                                <?php foreach (['Belum Menikah', 'Menikah', 'Cerai Hidup', 'Cerai Mati'] as $st): ?>
+                                    <option value="<?= e($st) ?>" <?= $currKawin === $st ? 'selected' : '' ?>><?= e($st) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label" for="nama_ibu_kandung">Nama Ibu Kandung</label>
+                            <input type="text" id="nama_ibu_kandung" name="nama_ibu_kandung" class="form-control"
+                                   value="<?= e($_POST['nama_ibu_kandung'] ?? $pasien['nama_ibu_kandung'] ?? '') ?>" placeholder="Nama lengkap ibu kandung">
+                        </div>
+
+                        <div class="form-group" id="wrap_profil_ayah_suami">
+                            <label class="form-label" for="nama_suami" id="lbl_profil_suami">Nama Suami / Pasangan</label>
+                            <input type="text" id="nama_suami" name="nama_suami" class="form-control"
+                                   value="<?= e($_POST['nama_suami'] ?? $pasien['nama_suami'] ?? $pasien['nama_ayah_kandung'] ?? '') ?>" placeholder="Nama lengkap">
+                            <input type="hidden" id="nama_ayah_kandung" name="nama_ayah_kandung" value="<?= e($_POST['nama_ayah_kandung'] ?? $pasien['nama_ayah_kandung'] ?? '') ?>">
+                            <small id="hint_profil_suami" style="color:var(--hanania-muted);font-size:11px;display:block;margin-top:4px;"></small>
+                        </div>
+
+                        <div class="form-group">
                             <label class="form-label" for="no_telepon">No. Telepon / WhatsApp <span class="required">*</span></label>
                             <input type="tel" id="no_telepon" name="no_telepon" class="form-control" required
                                    value="<?= e($_POST['no_telepon'] ?? $pasien['no_telepon'] ?? '') ?>" placeholder="Contoh: 08123456789">
@@ -1411,17 +1496,6 @@ $tier = 'Sahabat Hanania';
                             <label class="form-label" for="pekerjaan">Pekerjaan</label>
                             <input type="text" id="pekerjaan" name="pekerjaan" class="form-control"
                                    value="<?= e($_POST['pekerjaan'] ?? $pasien['pekerjaan'] ?? '') ?>" placeholder="Contoh: Karyawan Swasta, Wiraswasta, PNS">
-                        </div>
-
-                        <div class="form-group">
-                            <label class="form-label" for="status_perkawinan">Status Perkawinan</label>
-                            <?php $currKawin = $_POST['status_perkawinan'] ?? $pasien['status_perkawinan'] ?? ''; ?>
-                            <select id="status_perkawinan" name="status_perkawinan" class="form-control">
-                                <option value="">-- Pilih Status Perkawinan --</option>
-                                <?php foreach (['Belum Kawin', 'Kawin', 'Cerai Hidup', 'Cerai Mati'] as $st): ?>
-                                    <option value="<?= e($st) ?>" <?= $currKawin === $st ? 'selected' : '' ?>><?= e($st) ?></option>
-                                <?php endforeach; ?>
-                            </select>
                         </div>
 
                         <div class="form-group">
@@ -1510,6 +1584,66 @@ $tier = 'Sahabat Hanania';
             }
         });
     }
+
+    function updateProfilAyahSuami() {
+        const tglLahirElem = document.getElementById('tanggal_lahir');
+        const statusNikahElem = document.getElementById('status_perkawinan');
+        const labelElem = document.getElementById('lbl_profil_suami');
+        const inputSuami = document.getElementById('nama_suami');
+        const inputAyah = document.getElementById('nama_ayah_kandung');
+        const hintElem = document.getElementById('hint_profil_suami');
+
+        if (!labelElem || !inputSuami) return;
+
+        let isAnak = false;
+        const tglLahirVal = tglLahirElem ? tglLahirElem.value : '';
+        if (tglLahirVal) {
+            const birthDate = new Date(tglLahirVal);
+            const today = new Date();
+            let age = today.getFullYear() - birthDate.getFullYear();
+            const m = today.getMonth() - birthDate.getMonth();
+            if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+                age--;
+            }
+            if (age < 17) isAnak = true;
+        }
+
+        const rawNikah = (statusNikahElem ? statusNikahElem.value : '').trim().toLowerCase();
+        const isMenikah = (rawNikah === 'menikah' || rawNikah === 'kawin' || rawNikah === 'cerai hidup' || rawNikah === 'cerai mati');
+
+        if (isMenikah && !isAnak) {
+            labelElem.innerHTML = 'Nama Suami';
+            inputSuami.placeholder = 'Contoh: Nama lengkap suami sesuai KTP';
+            if (hintElem) hintElem.innerHTML = '💍 Status Menikah: cantumkan nama suami.';
+        } else {
+            labelElem.innerHTML = 'Nama Ayah Kandung';
+            inputSuami.placeholder = 'Contoh: Nama ayah kandung sesuai Kartu Keluarga (KK)';
+            if (hintElem) hintElem.innerHTML = isAnak 
+                ? '👶 Pasien anak (< 17 tahun): cantumkan nama ayah kandung sesuai Kartu Keluarga.' 
+                : '👤 Status Belum Menikah / Pasien Anak: cantumkan nama ayah kandung.';
+            if (inputAyah && inputSuami.value) inputAyah.value = inputSuami.value;
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const tgl = document.getElementById('tanggal_lahir');
+        const nikah = document.getElementById('status_perkawinan');
+        const suami = document.getElementById('nama_suami');
+        const ayah = document.getElementById('nama_ayah_kandung');
+
+        if (tgl) tgl.addEventListener('change', updateProfilAyahSuami);
+        if (nikah) nikah.addEventListener('change', updateProfilAyahSuami);
+        if (suami) {
+            suami.addEventListener('input', function() {
+                const raw = (nikah ? nikah.value : '').trim().toLowerCase();
+                const isNikah = (raw === 'menikah' || raw === 'kawin' || raw === 'cerai hidup' || raw === 'cerai mati');
+                if (!isNikah && ayah) {
+                    ayah.value = this.value;
+                }
+            });
+        }
+        updateProfilAyahSuami();
+    });
     </script>
 
 </body>

@@ -10,7 +10,8 @@ if (!$db instanceof mysqli) {
     die('Koneksi database tidak tersedia.');
 }
 $db->set_charset('utf8mb4');
-$base = '/Klinik-Pratama-Rumah-Hanania';
+$scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
+$base = (stripos($scriptName, '/Klinik-Pratama-Rumah-Hanania') !== false) ? '/Klinik-Pratama-Rumah-Hanania' : '';
 
 $idUser = (int)($_SESSION['id_user'] ?? $_SESSION['user']['id_user'] ?? 0);
 $idPasienSession = (int)($_SESSION['id_pasien'] ?? $_SESSION['user']['id_pasien'] ?? 0);
@@ -45,7 +46,12 @@ if ($isLogin && $db instanceof mysqli) {
     }
 
     if ($pasien) {
-        $rewardPoin = (int)($pasien['reward_poin'] ?? 50);
+        $rewardPoin = (int)($pasien['reward_poin'] ?? 0);
+        if (isset($_SESSION['user'])) {
+            $_SESSION['user']['reward_poin'] = $rewardPoin;
+            $_SESSION['user']['poin'] = $rewardPoin;
+        }
+        $_SESSION['reward_poin'] = $rewardPoin;
         $namaPasien = $pasien['nama_lengkap'] ?? $_SESSION['nama_lengkap'] ?? 'Pasien';
         $idPasien = (int)$pasien['id_pasien'];
 
@@ -68,6 +74,25 @@ if ($isLogin && $db instanceof mysqli) {
         $qPenukaran = $db->query("SELECT * FROM penukaran_poin WHERE id_pasien = $idPasien ORDER BY created_at DESC");
         if ($qPenukaran) {
             $riwayatPenukaran = $qPenukaran->fetch_all(MYSQLI_ASSOC);
+        }
+
+        // Ambil riwayat mutasi perolehan poin
+        $riwayatPoinList = [];
+        $qR = $db->query("SELECT * FROM riwayat_poin WHERE id_pasien = $idPasien ORDER BY id_riwayat DESC LIMIT 30");
+        if ($qR) {
+            $riwayatPoinList = $qR->fetch_all(MYSQLI_ASSOC);
+        }
+    }
+}
+
+// Cek status klaim Google Review (+1 Poin)
+$googleReviewClaimed = false;
+if (isset($idPasien) && $idPasien > 0) {
+    $qRev = $db->query("SELECT nilai FROM pengaturan_konten WHERE kunci = 'google_review_claimed_pasien_ids' LIMIT 1");
+    if ($qRev && $rowR = $qRev->fetch_assoc()) {
+        $claimedList = json_decode($rowR['nilai'] ?: '[]', true);
+        if (is_array($claimedList) && in_array($idPasien, $claimedList, true)) {
+            $googleReviewClaimed = true;
         }
     }
 }
@@ -96,15 +121,25 @@ $poinBpjsVal     = (int)getPoinSetting($db, 'poin_kunjungan_bpjs', 1);
 $poinBiasaVal    = (int)getPoinSetting($db, 'poin_kunjungan_biasa', 2);
 $poinUsgVal      = (int)getPoinSetting($db, 'poin_kunjungan_usg', 3);
 $poinBersalinVal = (int)getPoinSetting($db, 'poin_kunjungan_bersalin', 10);
+$customPoinRules = getCustomPoinRules($db);
 
 $poinHeroJudul = getPoinKonten($db, 'poin_hero_judul', 'Hanania Point & Reward');
 $poinHeroDeskripsi = getPoinKonten($db, 'poin_hero_deskripsi', 'Dapatkan apresiasi terbaik untuk setiap kunjungan dan konsultasi kesehatan Anda.');
 $poinPanduanJudul = getPoinKonten($db, 'poin_panduan_judul', 'Panduan & Cara Penukaran Poin');
+
+$extraRulesLines = '';
+if (!empty($customPoinRules)) {
+    foreach ($customPoinRules as $cr) {
+        $extraRulesLines .= "   • " . $cr['nama'] . " = " . (int)$cr['poin'] . " Poin\n";
+    }
+}
+
 $defaultPanduanTeks = "1. Dapatkan poin reward di setiap kunjungan pelayanan:\n"
     . "   • Kunjungan BPJS = {$poinBpjsVal} Poin\n"
     . "   • Kunjungan Biasa (Tanpa USG) = {$poinBiasaVal} Poin\n"
     . "   • Kunjungan USG = {$poinUsgVal} Poin\n"
     . "   • Kunjungan Bersalin = {$poinBersalinVal} Poin\n"
+    . $extraRulesLines
     . "2. Pilih reward atau voucher yang sesuai dengan jumlah poin yang Anda miliki.\n"
     . "3. Ajukan penukaran dan tunggu persetujuan (ACC) dari Admin Klinik.\n"
     . "4. Tunjukkan kode voucher resmi yang telah disetujui kepada petugas pendaftaran/kasir saat kunjungan berikutnya.";
@@ -113,10 +148,19 @@ $poinPanduanTeks = getPoinKonten($db, 'poin_panduan_teks', $defaultPanduanTeks);
 // Default Katalog Reward Hanania jika belum diubah oleh admin
 $defaultKatalogReward = [
     [
+        'id' => 'VCH-TUMBLER',
+        'nama' => 'Merchandise Tumbler & Kit Hand Sanitizer Hanania',
+        'kategori' => 'Souvenir Sehat',
+        'poin' => 5,
+        'deskripsi' => 'Tumbler ramah lingkungan edisi Rumah Hanania dilengkapi dengan botol hand sanitizer saku yang praktis.',
+        'icon' => '🎁',
+        'badge' => 'Hadiah Langsung'
+    ],
+    [
         'id' => 'VCH-GIGI-25',
         'nama' => 'Voucher Diskon Tindakan Poli Gigi Rp 25.000',
         'kategori' => 'Poli Gigi & Mulut',
-        'poin' => 100,
+        'poin' => 10,
         'deskripsi' => 'Berlaku untuk pembersihan karang gigi (scaling), penambalan, atau pencabutan gigi ringan di Klinik Rumah Hanania.',
         'icon' => '🦷',
         'badge' => 'Paling Populer'
@@ -125,7 +169,7 @@ $defaultKatalogReward = [
         'id' => 'VCH-KONSUL-GRATIS',
         'nama' => 'Gratis Konsultasi Lanjutan Dokter Umum',
         'kategori' => 'Poli Umum',
-        'poin' => 150,
+        'poin' => 15,
         'deskripsi' => 'Bebas biaya jasa pemeriksaan dan konsultasi dokter umum untuk satu kali kunjungan lanjutan kontrol kesehatan.',
         'icon' => '🩺',
         'badge' => 'Spesial'
@@ -134,7 +178,7 @@ $defaultKatalogReward = [
         'id' => 'VCH-VIT-HANANIA',
         'nama' => 'Paket Multivitamin Sehat Hanania (30 Tablet)',
         'kategori' => 'Farmasi & Apotek',
-        'poin' => 200,
+        'poin' => 20,
         'deskripsi' => 'Paket multivitamin lengkap untuk menjaga imunitas dan kebugaran tubuh, dapat diambil langsung di farmasi klinik.',
         'icon' => '💊',
         'badge' => 'Kesehatan'
@@ -143,19 +187,10 @@ $defaultKatalogReward = [
         'id' => 'VCH-USG-20',
         'nama' => 'Diskon 20% Pemeriksaan USG Kebidanan',
         'kategori' => 'Poli KIA & Kebidanan',
-        'poin' => 250,
+        'poin' => 25,
         'deskripsi' => 'Potongan 20% biaya layanan USG 2D/3D untuk ibu hamil saat jadwal pemeriksaan dengan dokter spesialis / bidan.',
         'icon' => '👶',
         'badge' => 'Bunda & Anak'
-    ],
-    [
-        'id' => 'VCH-TUMBLER',
-        'nama' => 'Merchandise Tumbler & Kit Hand Sanitizer Hanania',
-        'kategori' => 'Souvenir Sehat',
-        'poin' => 80,
-        'deskripsi' => 'Tumbler ramah lingkungan edisi Rumah Hanania dilengkapi dengan botol hand sanitizer saku yang praktis.',
-        'icon' => '🎁',
-        'badge' => 'Hadiah Langsung'
     ]
 ];
 
@@ -251,24 +286,24 @@ $tier = 'Reguler';
 $tierIcon = '🥉';
 $tierColor = '#8A6D3B';
 $nextTier = 'Silver';
-$targetNext = 100;
+$targetNext = 10;
 
-if ($rewardPoin >= 300) {
+if ($rewardPoin >= 25) {
     $tier = 'Gold Member';
     $tierIcon = '🥇';
     $tierColor = '#D4AF37';
     $nextTier = 'Maksimal (Diamond)';
-    $targetNext = 300;
+    $targetNext = 25;
     $progressPercent = 100;
-} elseif ($rewardPoin >= 100) {
+} elseif ($rewardPoin >= 10) {
     $tier = 'Silver Member';
     $tierIcon = '🥈';
     $tierColor = '#8C9BAE';
     $nextTier = 'Gold';
-    $targetNext = 300;
-    $progressPercent = min(100, round(($rewardPoin / 300) * 100));
+    $targetNext = 25;
+    $progressPercent = min(100, round((($rewardPoin - 10) / 15) * 100));
 } else {
-    $progressPercent = min(100, round(($rewardPoin / 100) * 100));
+    $progressPercent = min(100, round(($rewardPoin / 10) * 100));
 }
 
 function eR($v) {
@@ -738,6 +773,52 @@ function eR($v) {
             <?php endif; ?>
         </section>
 
+        <!-- KARTU GOOGLE REVIEW RESMI KLINIK RUMAH HANANIA (5.0 BINTANG) -->
+        <div class="history-card" style="margin-bottom: 28px; background: linear-gradient(135deg, #FFFDF8 0%, #FFF9EC 100%); border: 1.5px solid #FDE68A; padding: 22px 24px; border-radius: 16px; box-shadow: 0 4px 16px rgba(245, 158, 11, 0.08);">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap;">
+                <div style="display: flex; align-items: center; gap: 16px; flex: 1; min-width: 280px;">
+                    <div style="width: 52px; height: 52px; border-radius: 14px; background: #FEF3C7; border: 1.5px solid #FCD34D; display: flex; align-items: center; justify-content: center; font-size: 26px; flex-shrink: 0; box-shadow: 0 4px 10px rgba(245, 158, 11, 0.15);">
+                        ⭐
+                    </div>
+                    <div>
+                        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                            <strong style="color: #2B1B48; font-size: 16px; font-weight: 800;">Ulasan Pasien di Google Review</strong>
+                            <span style="background: #16A34A; color: #FFFFFF; font-size: 11px; font-weight: 800; padding: 3px 9px; border-radius: 999px; display: inline-flex; align-items: center; gap: 4px;">
+                                5.0 ⭐ (50+ Ulasan Puas)
+                            </span>
+                            <span style="background: #F59E0B; color: #FFFFFF; font-size: 11px; font-weight: 800; padding: 3px 9px; border-radius: 999px;">
+                                +1 Poin Reward
+                            </span>
+                        </div>
+                        <p style="margin: 5px 0 0; font-size: 13px; color: #6D5B7B; line-height: 1.55;">
+                            Bantu bagikan pengalaman ramah dan nyaman Anda selama periksa di Klinik Pratama Rumah Hanania di Google Review. Dapatkan otomatis <strong>+1 Poin Reward</strong> ke akun Anda!
+                        </p>
+                        <div style="margin-top: 6px;">
+                            <a href="https://maps.app.goo.gl/524k7ABe1fckKgpt6" target="_blank" rel="noopener" style="font-size: 12px; font-weight: 700; color: #B45309; text-decoration: underline; display: inline-flex; align-items: center; gap: 4px;">
+                                📍 Buka Google Maps Klinik Rumah Hanania &rarr;
+                            </a>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="flex-shrink: 0;" id="wrapReviewBtn">
+                    <?php if (!$isLogin): ?>
+                        <a href="../login.php?redirect=reward" class="btn-tukar" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px; background: #F59E0B; color: #FFFFFF; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);">
+                            <span>⭐</span> Login &amp; Klaim Poin Review
+                        </a>
+                    <?php elseif ($googleReviewClaimed): ?>
+                        <div style="display: inline-flex; align-items: center; gap: 6px; background: #ECFDF5; border: 1.5px solid #A7F3D0; color: #065F46; padding: 10px 18px; border-radius: 12px; font-size: 13px; font-weight: 800;">
+                            ✅ +1 Poin Review Sudah Diterima
+                        </div>
+                    <?php else: ?>
+                        <button type="button" onclick="klaimGoogleReview()" id="btnKlaimReview" class="btn-tukar" style="background: #F59E0B; color: #FFFFFF; font-weight: 800; font-size: 13px; padding: 11px 20px; border-radius: 12px; border: none; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 4px 14px rgba(245, 158, 11, 0.35);">
+                            <span>⭐</span> Tulis Review &amp; Klaim +1 Poin
+                        </button>
+                    <?php endif; ?>
+                </div>
+            </div>
+        </div>
+
         <!-- INFORMASI & PANDUAN POIN -->
         <?php if (!empty($poinPanduanTeks)): ?>
             <div class="history-card" style="margin-bottom:32px;background:#FAF8FD;border:1.5px solid var(--hanania-border);padding:22px 24px;">
@@ -849,6 +930,85 @@ function eR($v) {
             </div>
         <?php endif; ?>
 
+        <!-- RIWAYAT MUTASI & PEROLEHAN POIN KUNJUNGAN -->
+        <?php if ($isLogin): ?>
+            <div class="section-header">
+                <h2 class="section-title">
+                    <span>📜</span> Riwayat Mutasi &amp; Perolehan Poin Kunjungan
+                </h2>
+            </div>
+
+            <div class="history-card" style="margin-bottom:36px;">
+                <?php if (empty($riwayatPoinList)): ?>
+                    <div style="text-align:center;padding:30px;color:var(--hanania-muted);font-size:13px;">
+                        Belum ada riwayat perolehan poin. Poin akan otomatis tercatat setiap kali Anda mendaftar atau berkunjung ke klinik (BPJS = <?= $poinBpjsVal ?> Poin, Biasa = <?= $poinBiasaVal ?> Poin, USG = <?= $poinUsgVal ?> Poin, Bersalin = <?= $poinBersalinVal ?> Poin).
+                    </div>
+                <?php else: ?>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Tanggal &amp; Waktu</th>
+                                    <th>Aktivitas / Layanan</th>
+                                    <th>Perubahan Poin</th>
+                                    <th>Saldo Akhir</th>
+                                    <th>Keterangan</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($riwayatPoinList as $rpl): ?>
+                                    <tr>
+                                        <td><strong><?= date('d M Y, H:i', strtotime($rpl['created_at'])) ?> WIB</strong></td>
+                                        <td>
+                                            <?php
+                                            $kat = $rpl['kategori'] ?? 'kunjungan';
+                                            $katBadge = [
+                                                'kunjungan_bpjs' => ['🏥 Kunjungan BPJS', '#E0F2FE', '#0369A1'],
+                                                'kunjungan_biasa' => ['🩺 Kunjungan Biasa', '#EBF9F1', '#15803D'],
+                                                'kunjungan_usg' => ['👶 Kunjungan USG', '#EDE9FE', '#6D28D9'],
+                                                'kunjungan_bersalin' => ['🤱 Kunjungan Bersalin', '#FCE7F3', '#BE185D'],
+                                                'review_google' => ['⭐ Review Google Bintang 5', '#FEF3C7', '#B45309'],
+                                                'tukar_voucher' => ['🎁 Tukar Voucher Reward', '#FEE2E2', '#B91C1C'],
+                                                'manual' => ['➕ Bonus Admin', '#F3F4F6', '#374151'],
+                                            ];
+                                            $b = $katBadge[$kat] ?? ['✨ ' . ucfirst(str_replace('_', ' ', $kat)), '#EDE9FE', '#6D28D9'];
+                                            ?>
+                                            <span style="background:<?= $b[1] ?>;color:<?= $b[2] ?>;padding:4px 9px;border-radius:6px;font-size:11.5px;font-weight:700;display:inline-block;">
+                                                <?= $b[0] ?>
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <?php if (($rpl['jenis'] ?? '') === 'tambah' || (int)$rpl['jumlah_poin'] > 0 && ($rpl['jenis'] ?? '') !== 'kurang'): ?>
+                                                <strong style="color:#15803D;font-size:13px;background:#ECFDF5;padding:3px 8px;border-radius:6px;">
+                                                    +<?= (int)$rpl['jumlah_poin'] ?> Poin
+                                                </strong>
+                                            <?php elseif (($rpl['jenis'] ?? '') === 'kurang'): ?>
+                                                <strong style="color:#DC2626;font-size:13px;background:#FEF2F2;padding:3px 8px;border-radius:6px;">
+                                                    -<?= (int)$rpl['jumlah_poin'] ?> Poin
+                                                </strong>
+                                            <?php else: ?>
+                                                <strong style="color:#6C34A3;font-size:13px;background:#F3E8FF;padding:3px 8px;border-radius:6px;">
+                                                    <?= (int)$rpl['jumlah_poin'] ?> Poin
+                                                </strong>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <strong style="color:var(--hanania-purple-dark);font-size:13.5px;">
+                                                ⭐ <?= number_format((int)$rpl['saldo_akhir'], 0, ',', '.') ?> Pts
+                                            </strong>
+                                        </td>
+                                        <td style="font-size:12px;color:var(--hanania-muted);">
+                                            <?= eR($rpl['keterangan'] ?: '-') ?>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
+
         <!-- Katalog Reward -->
         <div class="section-header">
             <h2 class="section-title">
@@ -897,6 +1057,43 @@ function eR($v) {
     </main>
 
     <?php include __DIR__ . '/../includes/footer.php'; ?>
+
+    <script>
+    function klaimGoogleReview() {
+        window.open('https://maps.app.goo.gl/524k7ABe1fckKgpt6', '_blank');
+        const btn = document.getElementById('btnKlaimReview');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<span>⏳</span> Memproses Poin...';
+        }
+        fetch('klaim_review.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                alert(data.message);
+                location.reload();
+            } else {
+                alert(data.message);
+                if (data.already_claimed) {
+                    location.reload();
+                } else if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<span>⭐</span> Tulis Review & Klaim +1 Poin';
+                }
+            }
+        })
+        .catch(err => {
+            console.error('Error claiming review:', err);
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<span>⭐</span> Tulis Review & Klaim +1 Poin';
+            }
+        });
+    }
+    </script>
 
 </body>
 </html>

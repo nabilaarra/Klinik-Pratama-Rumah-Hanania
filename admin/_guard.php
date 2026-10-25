@@ -30,7 +30,8 @@ function adminEsc($value): string {
 
 function adminPageStart(string $title, string $activeTab = 'dashboard'): void {
     global $db, $conn;
-    $base = '/Klinik-Pratama-Rumah-Hanania';
+    $scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
+    $base = (stripos($scriptName, '/Klinik-Pratama-Rumah-Hanania') !== false) ? '/Klinik-Pratama-Rumah-Hanania' : '';
     $adminUser = $_SESSION['admin_username'] ?? 'admin';
 
     // Hitung ulasan pasien yang butuh verifikasi admin (status = 'menunggu')
@@ -1054,7 +1055,7 @@ function adminPageStart(string $title, string $activeTab = 'dashboard'): void {
     <aside class="admin-sidebar" id="adminSidebar">
         <div class="sidebar-brand">
             <div class="sidebar-brand-logo">
-                <img src="<?= $base ?>/assets/img/logo.jpg" alt="Logo Klinik" onerror="this.onerror=null;this.parentElement.innerHTML='🩺';">
+                <img src="../assets/img/logo.jpg" alt="Logo Klinik" onerror="this.onerror=null;this.parentElement.innerHTML='🩺';">
             </div>
             <div class="sidebar-brand-text">
                 <h2>Klinik Pratama<br>Rumah Hanania</h2>
@@ -1140,7 +1141,7 @@ function adminPageStart(string $title, string $activeTab = 'dashboard'): void {
         </nav>
 
         <div class="sidebar-footer">
-            <a href="<?= $base ?>/index.php" class="sidebar-btn-link" target="_blank" rel="noopener">
+            <a href="../index.php" class="sidebar-btn-link" target="_blank" rel="noopener">
                 <span>🌐</span>
                 <span>Buka Website Publik</span>
             </a>
@@ -1169,7 +1170,7 @@ function adminPageStart(string $title, string $activeTab = 'dashboard'): void {
                     <span>🗓️</span>
                     <span><?= date('d M Y') ?></span>
                 </div>
-                <a href="<?= $base ?>/index.php" class="topbar-btn-website" target="_blank" rel="noopener">
+                <a href="../index.php" class="topbar-btn-website" target="_blank" rel="noopener">
                     Lihat Website &rarr;
                 </a>
             </div>

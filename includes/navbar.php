@@ -54,6 +54,11 @@ if ($isPatient && $userId > 0 && isset($conn) && $conn instanceof mysqli) {
             }
             if (isset($patient['reward_poin'])) {
                 $points = (int)$patient['reward_poin'];
+                if (isset($_SESSION['user'])) {
+                    $_SESSION['user']['reward_poin'] = $points;
+                    $_SESSION['user']['poin'] = $points;
+                }
+                $_SESSION['reward_poin'] = $points;
             }
         }
         $stmt->close();

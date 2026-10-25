@@ -5,6 +5,8 @@ if (session_status() === PHP_SESSION_NONE) {
 date_default_timezone_set('Asia/Jakarta');
 
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../includes/poli_helper.php';
+require_once __DIR__ . '/../includes/antrean_helper.php';
 
 $db = $conn ?? $koneksi ?? null;
 if (!$db instanceof mysqli) {
@@ -40,7 +42,7 @@ if (!$chkSrc || $chkSrc->num_rows === 0) {
 // Pastikan kolom reward_poin ada di tabel pasien
 $chkPoin = @$db->query("SHOW COLUMNS FROM pasien LIKE 'reward_poin'");
 if (!$chkPoin || $chkPoin->num_rows === 0) {
-    @$db->query("ALTER TABLE pasien ADD COLUMN reward_poin INT NOT NULL DEFAULT 50");
+    @$db->query("ALTER TABLE pasien ADD COLUMN reward_poin INT NOT NULL DEFAULT 0");
 }
 
 function kembaliDenganPesan(string $pesan): void {
@@ -60,6 +62,9 @@ $idUser = (int)($_SESSION['id_user'] ?? $_SESSION['user']['id_user'] ?? $_SESSIO
 $idPasien = isset($_POST['id_pasien']) && $_POST['id_pasien'] !== '' ? (int)$_POST['id_pasien'] : 0;
 $nik = trim($_POST['nik'] ?? '');
 $nama = trim($_POST['nama_lengkap'] ?? '');
+$namaIbuKandung = trim($_POST['nama_ibu_kandung'] ?? '');
+$namaSuami = trim($_POST['nama_suami'] ?? '');
+$namaAyahKandung = trim($_POST['nama_ayah_kandung'] ?? '');
 $tanggalLahir = trim($_POST['tanggal_lahir'] ?? '');
 $jenisKelamin = trim($_POST['jenis_kelamin'] ?? '');
 $telepon = trim($_POST['no_telepon'] ?? '');
@@ -76,6 +81,29 @@ $tipePasien = ($_POST['tipe_pasien'] ?? 'sendiri') === 'keluarga' ? 'keluarga' :
 $jenisPerawatan = trim($_POST['jenis_perawatan'] ?? 'Pemeriksaan Rutin');
 $sesiKunjungan = trim($_POST['sesi_kunjungan'] ?? 'Sesi Pagi (08:00 - 12:00 WIB)');
 $nomorAntreanJkn = trim($_POST['nomor_antrean_jkn'] ?? '');
+
+// Logika Dinamis: Pasien anak (< 17 tahun) atau belum menikah menggunakan nama ayah kandung
+$isChild = false;
+if (!empty($tanggalLahir)) {
+    try {
+        $dob = new DateTime($tanggalLahir);
+        $nowDt = new DateTime();
+        $diffAge = $nowDt->diff($dob)->y;
+        if ($diffAge < 17) $isChild = true;
+    } catch (Exception $e) {}
+}
+$isBelumMenikah = (empty($statusPerkawinan) || $statusPerkawinan === 'Belum Menikah');
+
+if ($isChild || $isBelumMenikah) {
+    if ($namaAyahKandung === '' && $namaSuami !== '') {
+        $namaAyahKandung = $namaSuami;
+    }
+    $namaSuami = '';
+} else {
+    if ($namaSuami === '' && $namaAyahKandung !== '') {
+        $namaSuami = $namaAyahKandung;
+    }
+}
 
 /* =====================================================
    AKSI AJAX: SIMPAN DATA DIRI SAJA
@@ -108,35 +136,60 @@ if (($_POST['action'] ?? '') === 'save_data_only') {
         if ($idPasien > 0) {
             $stmt = $db->prepare("
                 UPDATE pasien 
-                SET nik = ?, nama_lengkap = ?, tanggal_lahir = ?, jenis_kelamin = ?, no_telepon = ?, email = ?, alamat = ?,
+                SET nik = ?, nama_lengkap = ?, nama_ibu_kandung = ?, nama_suami = ?, nama_ayah_kandung = ?, tanggal_lahir = ?, jenis_kelamin = ?, no_telepon = ?, email = ?, alamat = ?,
                     pekerjaan = ?, status_perkawinan = ?, pendidikan_terakhir = ?, agama = ?, ada_rujukan = ?, asal_rujukan = ?
                 WHERE id_pasien = ?
             ");
             if ($stmt) {
-                $stmt->bind_param('sssssssssssssi', $nik, $nama, $tanggalLahir, $jenisKelamin, $telepon, $email, $alamat,
+                $stmt->bind_param('ssssssssssssssssi', $nik, $nama, $namaIbuKandung, $namaSuami, $namaAyahKandung, $tanggalLahir, $jenisKelamin, $telepon, $email, $alamat,
                     $pekerjaan, $statusPerkawinan, $pendidikanTerakhir, $agama, $adaRujukan, $asalRujukan, $idPasien);
                 $stmt->execute();
                 $stmt->close();
             }
         } else {
             $stmt = $db->prepare("
-                INSERT INTO pasien (id_user, nik, nama_lengkap, tanggal_lahir, jenis_kelamin, no_telepon, email, alamat,
+                INSERT INTO pasien (id_user, nik, nama_lengkap, nama_ibu_kandung, nama_suami, nama_ayah_kandung, tanggal_lahir, jenis_kelamin, no_telepon, email, alamat,
                                     pekerjaan, status_perkawinan, pendidikan_terakhir, agama, ada_rujukan, asal_rujukan)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             if ($stmt) {
                 $bindUser = ($tipePasien === 'sendiri' && $idUser > 0) ? $idUser : null;
-                $stmt->bind_param('isssssssssssss', $bindUser, $nik, $nama, $tanggalLahir, $jenisKelamin, $telepon, $email, $alamat,
+                $stmt->bind_param('issssssssssssssss', $bindUser, $nik, $nama, $namaIbuKandung, $namaSuami, $namaAyahKandung, $tanggalLahir, $jenisKelamin, $telepon, $email, $alamat,
                     $pekerjaan, $statusPerkawinan, $pendidikanTerakhir, $agama, $adaRujukan, $asalRujukan);
                 $stmt->execute();
                 $idPasien = $stmt->insert_id;
                 $stmt->close();
             }
         }
+
+        // Simpan field kustom jika ada
+        $qCust = $db->query("SELECT nama_field FROM pengaturan_form_pendaftaran WHERE is_custom = 1 AND status = 'aktif'");
+        if ($qCust && $qCust->num_rows > 0) {
+            while ($cRow = $qCust->fetch_assoc()) {
+                $cField = $cRow['nama_field'];
+                if (isset($_POST[$cField])) {
+                    $cVal = trim((string)$_POST[$cField]);
+                    $cleanCol = preg_replace('/[^a-z0-9_]/', '', $cField);
+                    $chkColEx = $db->query("SHOW COLUMNS FROM pasien LIKE '$cleanCol'");
+                    if ($chkColEx && $chkColEx->num_rows > 0) {
+                        $stCust = $db->prepare("UPDATE pasien SET `$cleanCol` = ? WHERE id_pasien = ?");
+                        if ($stCust) {
+                            $stCust->bind_param('si', $cVal, $idPasien);
+                            $stCust->execute();
+                            $stCust->close();
+                        }
+                    }
+                }
+            }
+        }
+
         $db->commit();
         if ($tipePasien === 'sendiri') {
             $_SESSION['id_pasien'] = $idPasien;
             $_SESSION['nama_lengkap'] = $nama;
+            $_SESSION['nama_ibu_kandung'] = $namaIbuKandung;
+            $_SESSION['nama_suami'] = $namaSuami;
+            $_SESSION['nama_ayah_kandung'] = $namaAyahKandung;
         }
         echo json_encode(['success' => true, 'message' => 'Data diri berhasil disimpan.', 'id_pasien' => $idPasien]);
     } catch (Throwable $e) {
@@ -193,6 +246,12 @@ if ($isWajib('email', false) && $email === '') {
 }
 if ($isWajib('keluhan', false) && $keluhan === '') {
     kembaliDenganPesan('Keluhan atau alasan kunjungan wajib diisi.');
+}
+if ($isWajib('nama_ibu_kandung', false) && $namaIbuKandung === '') {
+    kembaliDenganPesan('Nama ibu kandung pasien wajib diisi.');
+}
+if ($isWajib('nama_suami', false) && $namaSuami === '') {
+    kembaliDenganPesan('Nama suami / pasangan pasien wajib diisi.');
 }
 
 if ($idPoli <= 0) {
@@ -251,11 +310,11 @@ $sesiTimeSql = $isSoreSession ? "AND j.jam_mulai >= '13:00:00'" : "AND j.jam_mul
 if ($idDokter > 0) {
     // Cari jadwal dokter yang spesifik dengan sesi
     $stmtJadwal = $db->prepare("
-        SELECT d.nama_dokter, p.nama_poli, j.jam_mulai, j.jam_selesai
+        SELECT d.nama_dokter, p.nama_poli, j.jam_mulai, j.jam_selesai, j.status AS status_jadwal
         FROM jadwal_dokter j
         JOIN dokter d ON d.id_dokter = j.id_dokter
         JOIN poli p ON p.id_poli = j.id_poli
-        WHERE j.id_dokter = ? AND j.id_poli = ? AND LOWER(TRIM(j.hari)) = LOWER(?) $sesiTimeSql AND j.status = 'tersedia' AND d.status = 'aktif'
+        WHERE j.id_dokter = ? AND j.id_poli = ? AND LOWER(TRIM(j.hari)) = LOWER(?) $sesiTimeSql AND d.status = 'aktif'
         ORDER BY j.jam_mulai ASC LIMIT 1
     ");
     $rowJ = null;
@@ -268,11 +327,11 @@ if ($idDokter > 0) {
     // Fallback jika tidak ada sesi spesifik (misal jadwal tunggal)
     if (!$rowJ) {
         $stmtFallback = $db->prepare("
-            SELECT d.nama_dokter, p.nama_poli, j.jam_mulai, j.jam_selesai
+            SELECT d.nama_dokter, p.nama_poli, j.jam_mulai, j.jam_selesai, j.status AS status_jadwal
             FROM jadwal_dokter j
             JOIN dokter d ON d.id_dokter = j.id_dokter
             JOIN poli p ON p.id_poli = j.id_poli
-            WHERE j.id_dokter = ? AND j.id_poli = ? AND LOWER(TRIM(j.hari)) = LOWER(?) AND j.status = 'tersedia' AND d.status = 'aktif'
+            WHERE j.id_dokter = ? AND j.id_poli = ? AND LOWER(TRIM(j.hari)) = LOWER(?) AND d.status = 'aktif'
             ORDER BY j.jam_mulai ASC LIMIT 1
         ");
         if ($stmtFallback) {
@@ -292,11 +351,11 @@ if ($idDokter > 0) {
 } else {
     // Cari jadwal bidan yang spesifik dengan sesi
     $stmtJadwal = $db->prepare("
-        SELECT b.nama_bidan, p.nama_poli, j.jam_mulai, j.jam_selesai
+        SELECT b.nama_bidan, p.nama_poli, j.jam_mulai, j.jam_selesai, j.status AS status_jadwal
         FROM jadwal_bidan j
         JOIN bidan b ON b.id_bidan = j.id_bidan
         JOIN poli p ON p.id_poli = j.id_poli
-        WHERE j.id_bidan = ? AND j.id_poli = ? AND LOWER(TRIM(j.hari)) = LOWER(?) $sesiTimeSql AND j.status = 'tersedia' AND b.status = 'aktif'
+        WHERE j.id_bidan = ? AND j.id_poli = ? AND LOWER(TRIM(j.hari)) = LOWER(?) $sesiTimeSql AND b.status = 'aktif'
         ORDER BY j.jam_mulai ASC LIMIT 1
     ");
     $rowJ = null;
@@ -309,11 +368,11 @@ if ($idDokter > 0) {
     // Fallback jika tidak ada sesi spesifik (misal jadwal tunggal)
     if (!$rowJ) {
         $stmtFallback = $db->prepare("
-            SELECT b.nama_bidan, p.nama_poli, j.jam_mulai, j.jam_selesai
+            SELECT b.nama_bidan, p.nama_poli, j.jam_mulai, j.jam_selesai, j.status AS status_jadwal
             FROM jadwal_bidan j
             JOIN bidan b ON b.id_bidan = j.id_bidan
             JOIN poli p ON p.id_poli = j.id_poli
-            WHERE j.id_bidan = ? AND j.id_poli = ? AND LOWER(TRIM(j.hari)) = LOWER(?) AND j.status = 'tersedia' AND b.status = 'aktif'
+            WHERE j.id_bidan = ? AND j.id_poli = ? AND LOWER(TRIM(j.hari)) = LOWER(?) AND b.status = 'aktif'
             ORDER BY j.jam_mulai ASC LIMIT 1
         ");
         if ($stmtFallback) {
@@ -332,10 +391,31 @@ if ($idDokter > 0) {
     $jamSelesai = substr((string)$rowJ['jam_selesai'], 0, 5);
 }
 
+// Cek status pendaftaran spesifik tenaga medis
+$stJadwal = strtolower(trim((string)($rowJ['status_jadwal'] ?? 'tersedia')));
+if ($stJadwal === 'full_booking') {
+    kembaliDenganPesan('Full Booking');
+}
+if ($stJadwal === 'ditutup' || $stJadwal === 'tidak_tersedia') {
+    kembaliDenganPesan('Pendaftaran Ditutup');
+}
+if ($stJadwal === 'cuti') {
+    kembaliDenganPesan('Pendaftaran Ditutup (Tenaga Medis Cuti / Libur)');
+}
+
 $now = new DateTime('now', new DateTimeZone('Asia/Jakarta'));
 $todayDate = $now->format('Y-m-d');
 if ($tanggalKunjungan < $todayDate) {
-    kembaliDenganPesan('Tanggal kunjungan sudah berlalu.');
+    kembaliDenganPesan('Pendaftaran Ditutup (Tanggal kunjungan sudah berlalu).');
+}
+
+// Cek status operasional poli & cutoff pendaftaran (tutup 1 jam sebelum jadwal selesai, persalinan 24 jam nonstop)
+$allPoliMap = getAllPoliMap($db);
+$poliData = $allPoliMap[$idPoli] ?? ['id_poli' => $idPoli, 'nama_poli' => $namaPoli];
+$isTodayVisit = ($tanggalKunjungan === $todayDate);
+$statusPoli = cekStatusJadwalPoli($poliData, $jamMulai, $jamSelesai, $isTodayVisit, $jenisPerawatan);
+if ($statusPoli['is_closed']) {
+    kembaliDenganPesan($statusPoli['keterangan']);
 }
 
 $db->begin_transaction();
@@ -384,29 +464,50 @@ try {
     if ($idPasien > 0) {
         $stmtUp = $db->prepare("
             UPDATE pasien 
-            SET nik = ?, nama_lengkap = ?, tanggal_lahir = ?, jenis_kelamin = ?, no_telepon = ?, email = ?, alamat = ?,
+            SET nik = ?, nama_lengkap = ?, nama_ibu_kandung = ?, nama_suami = ?, nama_ayah_kandung = ?, tanggal_lahir = ?, jenis_kelamin = ?, no_telepon = ?, email = ?, alamat = ?,
                 pekerjaan = ?, status_perkawinan = ?, pendidikan_terakhir = ?, agama = ?, ada_rujukan = ?, asal_rujukan = ?
             WHERE id_pasien = ?
         ");
         if ($stmtUp) {
-            $stmtUp->bind_param('sssssssssssssi', $nik, $nama, $tanggalLahir, $jenisKelamin, $telepon, $email, $alamat,
+            $stmtUp->bind_param('ssssssssssssssssi', $nik, $nama, $namaIbuKandung, $namaSuami, $namaAyahKandung, $tanggalLahir, $jenisKelamin, $telepon, $email, $alamat,
                 $pekerjaan, $statusPerkawinan, $pendidikanTerakhir, $agama, $adaRujukan, $asalRujukan, $idPasien);
             $stmtUp->execute();
             $stmtUp->close();
         }
     } else {
         $stmtIn = $db->prepare("
-            INSERT INTO pasien (id_user, nik, nama_lengkap, tanggal_lahir, jenis_kelamin, no_telepon, email, alamat,
+            INSERT INTO pasien (id_user, nik, nama_lengkap, nama_ibu_kandung, nama_suami, nama_ayah_kandung, tanggal_lahir, jenis_kelamin, no_telepon, email, alamat,
                                 pekerjaan, status_perkawinan, pendidikan_terakhir, agama, ada_rujukan, asal_rujukan, reward_poin)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 50)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
         ");
         $bindUser = ($tipePasien === 'sendiri' && $idUser > 0) ? $idUser : null;
         if ($stmtIn) {
-            $stmtIn->bind_param('isssssssssssss', $bindUser, $nik, $nama, $tanggalLahir, $jenisKelamin, $telepon, $email, $alamat,
+            $stmtIn->bind_param('issssssssssssssss', $bindUser, $nik, $nama, $namaIbuKandung, $namaSuami, $namaAyahKandung, $tanggalLahir, $jenisKelamin, $telepon, $email, $alamat,
                 $pekerjaan, $statusPerkawinan, $pendidikanTerakhir, $agama, $adaRujukan, $asalRujukan);
             $stmtIn->execute();
             $idPasien = $stmtIn->insert_id;
             $stmtIn->close();
+        }
+    }
+
+    // Simpan data field kustom jika ada
+    $qCust2 = $db->query("SELECT nama_field FROM pengaturan_form_pendaftaran WHERE is_custom = 1 AND status = 'aktif'");
+    if ($qCust2 && $qCust2->num_rows > 0) {
+        while ($cRow2 = $qCust2->fetch_assoc()) {
+            $cField2 = $cRow2['nama_field'];
+            if (isset($_POST[$cField2])) {
+                $cVal2 = trim((string)$_POST[$cField2]);
+                $cleanCol2 = preg_replace('/[^a-z0-9_]/', '', $cField2);
+                $chkColEx2 = $db->query("SHOW COLUMNS FROM pasien LIKE '$cleanCol2'");
+                if ($chkColEx2 && $chkColEx2->num_rows > 0) {
+                    $stCust2 = $db->prepare("UPDATE pasien SET `$cleanCol2` = ? WHERE id_pasien = ?");
+                    if ($stCust2) {
+                        $stCust2->bind_param('si', $cVal2, $idPasien);
+                        $stCust2->execute();
+                        $stCust2->close();
+                    }
+                }
+            }
         }
     }
 
@@ -418,6 +519,9 @@ try {
     if ($tipePasien === 'sendiri' && $idUser > 0) {
         $_SESSION['nama_lengkap'] = $nama;
         $_SESSION['nik'] = $nik;
+        $_SESSION['nama_ibu_kandung'] = $namaIbuKandung;
+        $_SESSION['nama_suami'] = $namaSuami;
+        $_SESSION['nama_ayah_kandung'] = $namaAyahKandung;
     }
 
     // 3. Hitung Jumlah Pendaftaran Sebelumnya & Nomor Antrean Online
@@ -447,14 +551,12 @@ try {
     $onlineBefore = (int)($cntRes['online_count'] ?? 0);
     $offlineBefore = (int)($cntRes['offline_count'] ?? 0);
 
-    // Nomor antrean online: Pola 2 offline lalu 1 online yang menggunakan 3 nomor
-    // Online 1 -> 003 (range internal 003–005)
-    // Online 2 -> 008 (range internal 008–010)
-    // Online k -> (k * 5) - 2
-    $onlineIndex = $onlineBefore + 1;
-    $nomorAntreanNumber = ($onlineIndex * 5) - 2;
-    $nomorAntreanFormatted = str_pad((string)$nomorAntreanNumber, 3, '0', STR_PAD_LEFT);
-    $nomorAntreanRange = $nomorAntreanFormatted . '–' . str_pad((string)($nomorAntreanNumber + 2), 3, '0', STR_PAD_LEFT);
+    // Hitung nomor antrean online berikutnya dengan pola:
+    // 1-2: Offline, 3-5: Online, 6-7: Offline, 8-10: Online, dst.
+    $calcAntrean = hitungNomorAntreanBerikutnya($db, $tanggalKunjungan, $idPoli, $idDokter, $idBidan, 'online', $jamMulai);
+    $nomorAntreanNumber = $calcAntrean['nomor'];
+    $nomorAntreanFormatted = $calcAntrean['format'];
+    $nomorAntreanRange = $nomorAntreanFormatted;
 
     // 4. Hitung Estimasi Waktu Pelayanan Otomatis:
     // 1 Pasien = 1 pendaftaran = 15–20 menit pelayanan
@@ -464,8 +566,9 @@ try {
     $serviceStartTs = $doctorStartTs + ($countBefore * 20 * 60);
     $serviceEndTs = $serviceStartTs + (20 * 60);
 
-    if ($serviceStartTs >= $doctorEndTs) {
-        throw new Exception('Mohon maaf, kuota antrean pelayanan tenaga kesehatan pada tanggal ini sudah penuh.');
+    $isPersalinan = isPoliPersalinan24Jam($poliData, $jenisPerawatan);
+    if ($serviceStartTs >= $doctorEndTs && !$isPersalinan) {
+        throw new Exception('Full Booking');
     }
 
     $jamKunjungan = date('H:i:s', $serviceStartTs);
@@ -542,8 +645,22 @@ try {
     $poinDidapat = (int)($calcPoin['poin'] ?? 0);
     $poinTipe = $calcPoin['tipe'] ?? 'Kunjungan Pasien';
 
+    $poinKode = $calcPoin['kode'] ?? 'biasa';
+
     if ($poinDidapat > 0) {
         $db->query("UPDATE pasien SET reward_poin = COALESCE(reward_poin, 0) + $poinDidapat WHERE id_pasien = $idPasien");
+
+        // Catat ke riwayat_poin
+        $qSal = $db->query("SELECT reward_poin FROM pasien WHERE id_pasien = $idPasien LIMIT 1");
+        $saldoAkhirPas = ($qSal && $rSal = $qSal->fetch_assoc()) ? (int)$rSal['reward_poin'] : $poinDidapat;
+        $kategoriLog = 'kunjungan_' . $poinKode;
+        $ketLog = "Pendaftaran Online: {$poinTipe} (+{$poinDidapat} Poin)";
+        $stLog = $db->prepare("INSERT INTO riwayat_poin (id_pasien, jenis, jumlah_poin, saldo_akhir, kategori, keterangan, created_by, created_at) VALUES (?, 'tambah', ?, ?, ?, ?, 'Sistem Online', NOW())");
+        if ($stLog) {
+            $stLog->bind_param('iiisss', $idPasien, $poinDidapat, $saldoAkhirPas, $kategoriLog, $ketLog);
+            $stLog->execute();
+            $stLog->close();
+        }
     }
     $curPoin = (int)($_SESSION['reward_poin'] ?? $_SESSION['user']['reward_poin'] ?? 0) + $poinDidapat;
     $_SESSION['reward_poin'] = $curPoin;

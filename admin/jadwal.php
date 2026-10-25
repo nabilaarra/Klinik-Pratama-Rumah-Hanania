@@ -37,6 +37,40 @@ if ($qB) while ($row = $qB->fetch_assoc()) $daftarBidan[] = $row;
 
 $daftarHari = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
 
+// QUICK TOGGLE STATUS JADWAL TENAGA MEDIS (Buka / Tutup / Full / Cuti)
+if (isset($_GET['toggle_status_id'])) {
+    $idToggle = (int)$_GET['toggle_status_id'];
+    $typeToggle = strtolower(trim($_GET['type'] ?? 'dokter'));
+    $modeToggle = strtolower(trim($_GET['mode'] ?? 'tersedia'));
+    $allowedModes = ['tersedia', 'ditutup', 'full_booking', 'cuti'];
+    if (!in_array($modeToggle, $allowedModes, true)) $modeToggle = 'tersedia';
+
+    $table = ($typeToggle === 'bidan') ? 'jadwal_bidan' : 'jadwal_dokter';
+    $colId = ($typeToggle === 'bidan') ? 'id_jadwal_bidan' : 'id_jadwal_dokter';
+
+    $stmtToggle = $db->prepare("UPDATE $table SET status = ? WHERE $colId = ?");
+    if ($stmtToggle) {
+        $stmtToggle->bind_param('si', $modeToggle, $idToggle);
+        $stmtToggle->execute();
+        $stmtToggle->close();
+
+        $labels = [
+            'tersedia' => '🟢 Pendaftaran Tersedia (Buka)',
+            'ditutup' => '⛔ Pendaftaran Ditutup (Tutup)',
+            'full_booking' => '🟡 Full Booking (Penuh)',
+            'cuti' => '🏖️ Cuti / Libur Praktik'
+        ];
+        $_SESSION['flash_msg'] = "Status jadwal berhasil diubah menjadi: " . ($labels[$modeToggle] ?? $modeToggle);
+        $_SESSION['flash_type'] = 'success';
+    }
+
+    $redirParams = $_GET;
+    unset($redirParams['toggle_status_id'], $redirParams['type'], $redirParams['mode']);
+    $url = 'jadwal.php' . (!empty($redirParams) ? '?' . http_build_query($redirParams) : '');
+    header("Location: $url");
+    exit;
+}
+
 // PROSES POST TAMBAH, EDIT, HAPUS
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -51,8 +85,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $jamMulai = trim($_POST['jam_mulai'] ?? '');
             $jamSelesai = trim($_POST['jam_selesai'] ?? '');
             $statusRaw = $_POST['status'] ?? 'tersedia';
-            $status = in_array($statusRaw, ['tersedia', 'cuti', 'tidak_tersedia', 'nonaktif'], true) ? $statusRaw : 'tersedia';
-            if ($status === 'nonaktif') $status = 'tidak_tersedia';
+            $status = in_array($statusRaw, ['tersedia', 'ditutup', 'full_booking', 'cuti', 'tidak_tersedia', 'nonaktif'], true) ? $statusRaw : 'tersedia';
+            if ($status === 'nonaktif' || $status === 'tidak_tersedia') $status = 'ditutup';
 
             // Ambil multi-hari
             $hariPost = $_POST['hari'] ?? [];
@@ -109,8 +143,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $jamMulai = trim($_POST['jam_mulai'] ?? '');
             $jamSelesai = trim($_POST['jam_selesai'] ?? '');
             $statusRaw = $_POST['status'] ?? 'tersedia';
-            $status = in_array($statusRaw, ['tersedia', 'cuti', 'tidak_tersedia', 'nonaktif'], true) ? $statusRaw : 'tersedia';
-            if ($status === 'nonaktif') $status = 'tidak_tersedia';
+            $status = in_array($statusRaw, ['tersedia', 'ditutup', 'full_booking', 'cuti', 'tidak_tersedia', 'nonaktif'], true) ? $statusRaw : 'tersedia';
+            if ($status === 'nonaktif' || $status === 'tidak_tersedia') $status = 'ditutup';
 
             // Ambil hari
             $hariPost = $_POST['hari'] ?? [];
@@ -259,12 +293,29 @@ adminPageStart('Kelola Jadwal Praktik', 'jadwal');
             <h1><span>📅</span> Pengelolaan Jadwal Praktik</h1>
             <p>Kelola jadwal praktik harian dokter dan bidan, jam pelayanan, poli, dan status ketersediaan dengan mudah.</p>
         </div>
-        <div class="admin-header-actions">
+        <div class="admin-header-actions" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <a href="layanan_pendaftaran.php?tab=poli" class="btn btn-sm btn-light" style="display:inline-flex;align-items:center;gap:6px;font-weight:700;">
+                <span>🏥</span> Status Operasional Poli
+            </a>
             <button type="button" class="btn" onclick="toggleFormJadwal()">
                 <span>➕</span> Tambah Jadwal Baru
             </button>
         </div>
     </header>
+
+    <!-- BANNER PEMBERITAHUAN ATURAN CUTOFF & 24 JAM -->
+    <div style="background:#FAF8FD;border:1.5px solid #E8DEF5;border-radius:12px;padding:12px 18px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:10px;">
+            <span style="font-size:20px;">⏱️</span>
+            <div style="font-size:12.5px;color:#5A4B70;line-height:1.5;">
+                <strong>Aturan Pendaftaran Online:</strong> Pendaftaran poli reguler otomatis ditutup <strong>1 jam sebelum jadwal praktik berakhir</strong>. Persalinan 24 Jam siaga 24/7 tanpa tutup. 
+                Untuk menutup poli darurat secara manual, kelola di menu <strong>Status Operasional Poli</strong>.
+            </div>
+        </div>
+        <a href="layanan_pendaftaran.php?tab=poli" class="btn btn-sm" style="padding:6px 14px;font-size:12px;font-weight:800;background:var(--hanania-primary);color:#fff;white-space:nowrap;">
+            Kelola Buka/Tutup Poli &rarr;
+        </a>
+    </div>
 
     <?php if ($message): ?>
         <div class="alert <?= $messageType === 'danger' ? 'alert-danger' : 'alert-success' ?>">
@@ -351,11 +402,12 @@ adminPageStart('Kelola Jadwal Praktik', 'jadwal');
 
                 <!-- STATUS KETERSEDIAAN -->
                 <div class="form-field">
-                    <label>Status Praktik *</label>
+                    <label>Status Praktik &amp; Pendaftaran *</label>
                     <select name="status" id="fieldJadwalStatus" required>
-                        <option value="tersedia">✅ Tersedia (Aktif Praktik)</option>
+                        <option value="tersedia">🟢 Pendaftaran Tersedia (Aktif Praktik)</option>
+                        <option value="ditutup">⛔ Pendaftaran Ditutup</option>
+                        <option value="full_booking">🟡 Full Booking (Kuota Penuh)</option>
                         <option value="cuti">🏖️ Cuti / Libur Praktik</option>
-                        <option value="tidak_tersedia">⏸️ Tidak Tersedia (Non-aktif)</option>
                     </select>
                 </div>
             </div>
@@ -397,21 +449,32 @@ adminPageStart('Kelola Jadwal Praktik', 'jadwal');
                 <!-- FILTER JENIS -->
                 <div class="admin-filter-group">
                     <span style="font-size:12px;font-weight:700;color:var(--muted);">Jenis:</span>
-                    <a href="jadwal.php<?= $filterHari !== 'semua' ? '?hari='.urlencode($filterHari) : '' ?>" class="btn btn-sm <?= $filterJenis === 'semua' ? '' : 'btn-light' ?>">Semua</a>
+                    <a href="jadwal.php<?= $filterHari !== 'semua' ? '?hari='.urlencode($filterHari) : '' ?>" class="btn btn-sm <?= ($filterJenis === 'semua' && $filterPoli !== 5) ? '' : 'btn-light' ?>">Semua</a>
                     <a href="jadwal.php?jenis=dokter<?= $filterHari !== 'semua' ? '&hari='.urlencode($filterHari) : '' ?>" class="btn btn-sm <?= $filterJenis === 'dokter' ? '' : 'btn-light' ?>">Dokter</a>
-                    <a href="jadwal.php?jenis=bidan<?= $filterHari !== 'semua' ? '&hari='.urlencode($filterHari) : '' ?>" class="btn btn-sm <?= $filterJenis === 'bidan' ? '' : 'btn-light' ?>">Bidan</a>
+                    <a href="jadwal.php?jenis=bidan<?= $filterHari !== 'semua' ? '&hari='.urlencode($filterHari) : '' ?>" class="btn btn-sm <?= ($filterJenis === 'bidan' && $filterPoli !== 5) ? '' : 'btn-light' ?>">Bidan</a>
+                    <a href="jadwal.php?poli=5<?= $filterHari !== 'semua' ? '&hari='.urlencode($filterHari) : '' ?>" class="btn btn-sm <?= $filterPoli === 5 ? '' : 'btn-light' ?>" style="font-weight:700;">🌙 Persalinan 24 Jam</a>
                 </div>
 
                 <!-- FILTER HARI -->
                 <div class="admin-filter-group">
                     <span style="font-size:12px;font-weight:700;color:var(--muted);">Hari:</span>
-                    <a href="jadwal.php<?= $filterJenis !== 'semua' ? '?jenis='.urlencode($filterJenis) : '' ?>" class="btn btn-sm <?= $filterHari === 'semua' ? '' : 'btn-light' ?>">Semua</a>
+                    <a href="jadwal.php<?= $filterPoli > 0 ? '?poli='.$filterPoli : ($filterJenis !== 'semua' ? '?jenis='.urlencode($filterJenis) : '') ?>" class="btn btn-sm <?= $filterHari === 'semua' ? '' : 'btn-light' ?>">Semua</a>
                     <?php foreach ($daftarHari as $h): ?>
-                        <a href="jadwal.php?hari=<?= urlencode($h) ?><?= $filterJenis !== 'semua' ? '&jenis='.urlencode($filterJenis) : '' ?>" class="btn btn-sm <?= $filterHari === $h ? '' : 'btn-light' ?>"><?= $h ?></a>
+                        <a href="jadwal.php?hari=<?= urlencode($h) ?><?= $filterPoli > 0 ? '&poli='.$filterPoli : ($filterJenis !== 'semua' ? '&jenis='.urlencode($filterJenis) : '') ?>" class="btn btn-sm <?= $filterHari === $h ? '' : 'btn-light' ?>"><?= $h ?></a>
                     <?php endforeach; ?>
                 </div>
             </div>
         </div>
+
+        <?php if ($filterPoli === 5): ?>
+            <!-- BANNER KHUSUS JADWAL JAGA PERSALINAN 24 JAM -->
+            <div style="background:#FAF5FF;border-bottom:1.5px solid #E9D5FF;padding:14px 20px;display:flex;align-items:center;gap:12px;">
+                <span style="font-size:24px;">🌙</span>
+                <div style="font-size:13px;color:#581C87;line-height:1.5;">
+                    <strong>Jadwal Bidan Jaga Persalinan 24 Jam:</strong> Setiap hari telah diatur 1 Bidan Jaga Utama yang siaga non-stop 24 jam. Admin dapat mengubah bidan yang bertugas jaga pada hari tertentu melalui tombol <strong>✏️ Edit</strong>.
+                </div>
+            </div>
+        <?php endif; ?>
 
         <div class="admin-table-responsive">
             <table>
@@ -437,13 +500,16 @@ adminPageStart('Kelola Jadwal Praktik', 'jadwal');
                         <?php foreach ($jadwalTableFiltered as $j): 
                             $status = $j['status'] ?? 'tersedia';
                             $badge = 'badge-success';
-                            $labelStatus = 'Tersedia';
-                            if ($status === 'cuti') {
+                            $labelStatus = 'Pendaftaran Tersedia';
+                            if ($status === 'ditutup' || $status === 'tidak_tersedia' || $status === 'nonaktif') {
+                                $badge = 'badge-danger';
+                                $labelStatus = 'Pendaftaran Ditutup';
+                            } elseif ($status === 'full_booking') {
                                 $badge = 'badge-warning';
-                                $labelStatus = 'Cuti / Libur';
-                            } elseif ($status === 'tidak_tersedia' || $status === 'nonaktif') {
+                                $labelStatus = 'Full Booking';
+                            } elseif ($status === 'cuti') {
                                 $badge = 'badge-gray';
-                                $labelStatus = 'Tidak Tersedia';
+                                $labelStatus = 'Cuti / Libur';
                             }
                             $jadwalJson = htmlspecialchars(json_encode($j, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP), ENT_QUOTES, 'UTF-8');
                         ?>
@@ -460,7 +526,12 @@ adminPageStart('Kelola Jadwal Praktik', 'jadwal');
                                 </span>
                             </td>
                             <td>
-                                <span><?= adminEsc($j['nama_poli']) ?></span>
+                                <div style="display:flex;flex-direction:column;gap:3px;">
+                                    <span><?= adminEsc($j['nama_poli']) ?></span>
+                                    <?php if ((int)$j['id_poli'] === 5): ?>
+                                        <span class="badge" style="background:#FAF5FF;color:#6B21A8;border:1px solid #D8B4FE;font-size:10.5px;font-weight:700;width:fit-content;">🌙 Bidan Jaga 24 Jam</span>
+                                    <?php endif; ?>
+                                </div>
                             </td>
                             <td>
                                 <span style="font-weight:700;color:var(--hanania-primary);">
@@ -468,7 +539,29 @@ adminPageStart('Kelola Jadwal Praktik', 'jadwal');
                                 </span>
                             </td>
                             <td>
-                                <span class="badge <?= $badge ?>"><?= adminEsc($labelStatus) ?></span>
+                                <div style="display:flex;flex-direction:column;gap:6px;">
+                                    <span class="badge <?= $badge ?>"><?= adminEsc($labelStatus) ?></span>
+                                    <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                                        <?php
+                                        $currStatus = $j['status'] ?? 'tersedia';
+                                        $jType = strtolower($j['jenis']);
+                                        $jId = (int)$j['id'];
+                                        $baseLink = 'jadwal.php?' . http_build_query(array_merge($_GET, ['toggle_status_id' => $jId, 'type' => $jType]));
+                                        ?>
+                                        <?php if ($currStatus !== 'tersedia'): ?>
+                                            <a href="<?= $baseLink ?>&mode=tersedia" class="btn btn-sm btn-light" style="padding:2px 6px;font-size:10.5px;color:#16A34A;background:#DCFCE7;border:1px solid #86EFAC;text-decoration:none;" title="Ubah jadi Pendaftaran Tersedia (Buka)">🟢 Buka</a>
+                                        <?php endif; ?>
+                                        <?php if ($currStatus !== 'ditutup'): ?>
+                                            <a href="<?= $baseLink ?>&mode=ditutup" class="btn btn-sm btn-light" style="padding:2px 6px;font-size:10.5px;color:#DC2626;background:#FEE2E2;border:1px solid #FCA5A5;text-decoration:none;" title="Ubah jadi Pendaftaran Ditutup">⛔ Tutup</a>
+                                        <?php endif; ?>
+                                        <?php if ($currStatus !== 'full_booking'): ?>
+                                            <a href="<?= $baseLink ?>&mode=full_booking" class="btn btn-sm btn-light" style="padding:2px 6px;font-size:10.5px;color:#D97706;background:#FEF3C7;border:1px solid #FCD34D;text-decoration:none;" title="Ubah jadi Penuh (Full Booking)">🟡 Full</a>
+                                        <?php endif; ?>
+                                        <?php if ($currStatus !== 'cuti'): ?>
+                                            <a href="<?= $baseLink ?>&mode=cuti" class="btn btn-sm btn-light" style="padding:2px 6px;font-size:10.5px;color:#4B5563;background:#F3F4F6;border:1px solid #E5E7EB;text-decoration:none;" title="Ubah jadi Cuti / Libur">🏖️ Cuti</a>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
                             </td>
                             <td style="text-align:right;">
                                 <div style="display:inline-flex;gap:6px;">
@@ -682,7 +775,7 @@ function bukaEditJadwal(j) {
     
     // Status
     let st = j.status || 'tersedia';
-    if (st === 'nonaktif') st = 'tidak_tersedia';
+    if (st === 'nonaktif' || st === 'tidak_tersedia') st = 'ditutup';
     document.getElementById('fieldJadwalStatus').value = st;
 
     document.getElementById('btnSubmitJadwal').textContent = 'Perbarui Jadwal';

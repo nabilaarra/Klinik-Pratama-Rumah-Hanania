@@ -49,7 +49,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 p.id_pasien,
                 p.nik,
                 p.nama_lengkap,
-                p.email
+                p.email,
+                p.reward_poin
             FROM users u
             LEFT JOIN pasien p ON p.id_user = u.id_user
                 WHERE u.username = ?
@@ -122,6 +123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     }
                 }
 
+                $userRewardPoin = (int)($user['reward_poin'] ?? 0);
                 $_SESSION['id_user'] = (int)$user['id_user'];
                 $_SESSION['user_id'] = (int)$user['id_user'];
                 $_SESSION['username'] = $user['username'];
@@ -130,6 +132,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['nama_lengkap'] = !empty($user['nama_lengkap']) ? $user['nama_lengkap'] : $user['username'];
                 $_SESSION['nik'] = $user['nik'] ?? '';
                 $_SESSION['email'] = $user['email'] ?? '';
+                $_SESSION['reward_poin'] = $userRewardPoin;
                 $_SESSION['user'] = [
                     'id_user' => (int)$user['id_user'],
                     'id_pasien' => (int)($user['id_pasien'] ?? 0),
@@ -137,7 +140,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'role' => 'pasien',
                     'nama_lengkap' => $_SESSION['nama_lengkap'],
                     'nik' => $user['nik'] ?? '',
-                    'email' => $user['email'] ?? ''
+                    'email' => $user['email'] ?? '',
+                    'reward_poin' => $userRewardPoin,
+                    'poin' => $userRewardPoin
                 ];
 
                 $redirectParam = trim((string)($_POST['redirect'] ?? $_GET['redirect'] ?? ''));

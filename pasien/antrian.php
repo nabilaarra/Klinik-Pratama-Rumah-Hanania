@@ -10,7 +10,8 @@ if (!$db instanceof mysqli) {
     die('Koneksi database tidak tersedia.');
 }
 $db->set_charset('utf8mb4');
-$base = '/Klinik-Pratama-Rumah-Hanania';
+$scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
+$base = (stripos($scriptName, '/Klinik-Pratama-Rumah-Hanania') !== false) ? '/Klinik-Pratama-Rumah-Hanania' : '';
 
 if (!function_exists('e')) {
     function e($value) {
@@ -26,6 +27,8 @@ if (!function_exists('tanggalIndonesia')) {
         return (int)$date->format('d') . ' ' . $bulan[(int)$date->format('m') - 1] . ' ' . $date->format('Y');
     }
 }
+
+require_once __DIR__ . '/../includes/poin_helper.php';
 
 $idUser = (int)($_SESSION['id_user'] ?? $_SESSION['user']['id_user'] ?? $_SESSION['user_id'] ?? 0);
 $idPasien = (int)($_SESSION['id_pasien'] ?? 0);
@@ -50,7 +53,7 @@ $riwayat = [];
 if ($isLoggedIn && $idPasien > 0) {
     $stmt = $db->prepare("
         SELECT p.id_pendaftaran, p.id_pasien, p.id_poli, p.id_dokter, p.id_bidan,
-               p.tanggal_kunjungan, p.jam_kunjungan, p.jenis_pasien, p.keluhan,
+               p.tanggal_kunjungan, p.jam_kunjungan, p.jenis_pasien, p.jenis_perawatan, p.keluhan,
                p.status_pendaftaran, p.sumber_pendaftaran,
                po.nama_poli, d.nama_dokter, b.nama_bidan,
                a.nomor_antrean, a.estimasi_waktu,
@@ -385,15 +388,21 @@ a{text-decoration:none;color:inherit}
                 $tenaga = $item['nama_dokter'] ?: ($item['nama_bidan'] ?: 'Tenaga Kesehatan');
                 $st = $item['status_pendaftaran'] ?? 'menunggu';
                 $stClass = 'status-' . $st;
+                $calcItemPoin = hitungPoinKunjungan($db, $item['jenis_pasien'] ?? 'Umum', $item['jenis_perawatan'] ?? '', $item['keluhan'] ?? '', (int)($item['id_poli'] ?? 0));
             ?>
             <article class="visit-card">
                 <div class="visit-top">
                     <div class="visit-date">
                         📅 <?= e(tanggalIndonesia($item['tanggal_kunjungan'])) ?>
                     </div>
-                    <span class="visit-status <?= $stClass ?>">
-                        <?= e(ucfirst($st)) ?>
-                    </span>
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                        <span style="font-size:11px;font-weight:800;color:#6A22A7;background:#F4EDFB;border:1px solid #E3D2F7;padding:3px 9px;border-radius:6px;display:inline-flex;align-items:center;gap:4px;">
+                            ⭐ +<?= $calcItemPoin['poin'] ?> Poin (<?= e($calcItemPoin['tipe']) ?>)
+                        </span>
+                        <span class="visit-status <?= $stClass ?>">
+                            <?= e(ucfirst($st)) ?>
+                        </span>
+                    </div>
                 </div>
 
                 <div class="queue-row">

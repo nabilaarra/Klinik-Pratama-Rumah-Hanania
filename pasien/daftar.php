@@ -25,6 +25,9 @@ $idUser = (int)($_SESSION['id_user'] ?? $_SESSION['user']['id_user'] ?? $_SESSIO
 
 $namaPasien = $_SESSION['nama_lengkap'] ?? $_SESSION['user']['nama_lengkap'] ?? $_SESSION['user']['nama'] ?? '';
 $nikUser = $_SESSION['nik'] ?? '';
+$namaIbuKandungUser = $_SESSION['nama_ibu_kandung'] ?? '';
+$namaSuamiUser = $_SESSION['nama_suami'] ?? '';
+$namaAyahKandungUser = $_SESSION['nama_ayah_kandung'] ?? '';
 $emailUser = $_SESSION['email'] ?? '';
 $teleponUser = $_SESSION['no_telepon'] ?? '';
 $alamatUser = $_SESSION['alamat'] ?? '';
@@ -39,7 +42,7 @@ $asalRujukanUser = $_SESSION['asal_rujukan'] ?? '';
 
 if ($idUser > 0) {
     $stmt = $db->prepare("
-        SELECT nik, nama_lengkap, tanggal_lahir, jenis_kelamin, no_telepon, email, alamat,
+        SELECT nik, nama_lengkap, nama_ibu_kandung, nama_suami, nama_ayah_kandung, tanggal_lahir, jenis_kelamin, no_telepon, email, alamat,
                pekerjaan, status_perkawinan, pendidikan_terakhir, agama, ada_rujukan, asal_rujukan
         FROM pasien
         WHERE id_user = ?
@@ -52,6 +55,9 @@ if ($idUser > 0) {
         if ($row = ($res ? $res->fetch_assoc() : null)) {
             $nikUser = $row['nik'] ?? $nikUser;
             $namaPasien = $row['nama_lengkap'] ?? $namaPasien;
+            $namaIbuKandungUser = $row['nama_ibu_kandung'] ?? $namaIbuKandungUser;
+            $namaSuamiUser = $row['nama_suami'] ?? $namaSuamiUser;
+            $namaAyahKandungUser = $row['nama_ayah_kandung'] ?? $namaAyahKandungUser;
             $tanggalLahirUser = $row['tanggal_lahir'] ?? $tanggalLahirUser;
             $jenisKelaminUser = $row['jenis_kelamin'] ?? $jenisKelaminUser;
             $teleponUser = $row['no_telepon'] ?? $teleponUser;
@@ -98,6 +104,13 @@ if ($layananTerpilih === 'usg') {
     }
 }
 
+// Jika dari halaman layanan Persalinan 24 Jam
+if ($layananTerpilih === 'persalinan' || $layananTerpilih === 'bersalin') {
+    if ($poliTerpilih <= 0) {
+        $poliTerpilih = 5; // Persalinan 24 Jam
+    }
+}
+
 // Ambil Poli jika dokter/bidan dipilih dari kartu dokter
 if ($poliTerpilih <= 0 && $dokterTerpilih > 0) {
     $stmtP = $db->prepare("SELECT id_poli FROM jadwal_dokter WHERE id_dokter = ? AND status = 'tersedia' LIMIT 1");
@@ -121,7 +134,12 @@ if ($poliTerpilih <= 0 && $bidanTerpilih > 0) {
 }
 
 $dataPoli = [];
-$qPoli = $db->query("SELECT id_poli, nama_poli FROM poli ORDER BY id_poli ASC");
+$qPoli = $db->query("
+    SELECT id_poli, nama_poli, is_24jam, status_operasional 
+    FROM poli 
+    WHERE status = 'aktif' 
+    ORDER BY CASE WHEN is_24jam = 1 OR id_poli = 5 OR nama_poli LIKE '%Persalinan%' THEN 0 ELSE 1 END, id_poli ASC
+");
 if ($qPoli) {
     while ($row = $qPoli->fetch_assoc()) {
         $dataPoli[] = $row;
@@ -1113,6 +1131,34 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover{
                             </select>
                         </div>
 
+                        <?php if (isFieldActive('status_perkawinan')): ?>
+                        <div class="form-group">
+                            <label for="status_perkawinan"><?= e(getFieldLabel('status_perkawinan', 'Status Perkawinan')) ?> <?= isFieldRequired('status_perkawinan') ? '*' : '(Opsional)' ?></label>
+                            <select name="status_perkawinan" id="status_perkawinan" <?= isFieldRequired('status_perkawinan') ? 'required' : '' ?>>
+                                <option value="">-- Pilih Status --</option>
+                                <?php foreach(['Belum Menikah','Menikah','Cerai Hidup','Cerai Mati'] as $v): ?>
+                                    <option value="<?= e($v) ?>" <?= $statusPerkawinanUser === $v ? 'selected' : '' ?>><?= e($v) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <?php endif; ?>
+
+                        <?php if (isFieldActive('nama_ibu_kandung')): ?>
+                        <div class="form-group">
+                            <label for="nama_ibu_kandung"><?= e(getFieldLabel('nama_ibu_kandung', 'Nama Ibu Kandung')) ?> <?= isFieldRequired('nama_ibu_kandung') ? '*' : '(Opsional)' ?></label>
+                            <input type="text" name="nama_ibu_kandung" id="nama_ibu_kandung" value="<?= e($namaIbuKandungUser) ?>" placeholder="Sesuai Kartu Keluarga / Akta" <?= isFieldRequired('nama_ibu_kandung') ? 'required' : '' ?>>
+                        </div>
+                        <?php endif; ?>
+
+                        <?php if (isFieldActive('nama_suami') || isFieldActive('nama_ayah_kandung')): ?>
+                        <div class="form-group" id="wrap_ayah_suami">
+                            <label for="nama_suami" id="label_ayah_suami"><?= e(getFieldLabel('nama_suami', 'Nama Suami / Pasangan')) ?> <?= (isFieldRequired('nama_suami') || isFieldRequired('nama_ayah_kandung')) ? '*' : '(Opsional)' ?></label>
+                            <input type="text" name="nama_suami" id="nama_suami" value="<?= e($namaSuamiUser ?: $namaAyahKandungUser) ?>" placeholder="Khusus bersalin / pasien menikah" <?= (isFieldRequired('nama_suami') || isFieldRequired('nama_ayah_kandung')) ? 'required' : '' ?>>
+                            <input type="hidden" name="nama_ayah_kandung" id="nama_ayah_kandung" value="<?= e($namaAyahKandungUser) ?>">
+                            <small id="hint_ayah_suami" style="color:var(--hanania-muted);font-size:11px;display:block;margin-top:3px;"></small>
+                        </div>
+                        <?php endif; ?>
+
                         <?php if (isFieldActive('no_telepon')): ?>
                         <div class="form-group">
                             <label for="no_telepon"><?= e(getFieldLabel('no_telepon', 'Nomor Telepon / WhatsApp')) ?> <?= isFieldRequired('no_telepon', true) ? '*' : '(Opsional)' ?></label>
@@ -1131,18 +1177,6 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover{
                         <div class="form-group">
                             <label for="pekerjaan"><?= e(getFieldLabel('pekerjaan', 'Pekerjaan')) ?> <?= isFieldRequired('pekerjaan') ? '*' : '(Opsional)' ?></label>
                             <input type="text" name="pekerjaan" id="pekerjaan" value="<?= e($pekerjaanUser) ?>" placeholder="Contoh: Karyawan, Pelajar, Ibu Rumah Tangga" <?= isFieldRequired('pekerjaan') ? 'required' : '' ?>>
-                        </div>
-                        <?php endif; ?>
-
-                        <?php if (isFieldActive('status_perkawinan')): ?>
-                        <div class="form-group">
-                            <label for="status_perkawinan"><?= e(getFieldLabel('status_perkawinan', 'Status Perkawinan')) ?> <?= isFieldRequired('status_perkawinan') ? '*' : '(Opsional)' ?></label>
-                            <select name="status_perkawinan" id="status_perkawinan" <?= isFieldRequired('status_perkawinan') ? 'required' : '' ?>>
-                                <option value="">-- Pilih Status --</option>
-                                <?php foreach(['Belum Menikah','Menikah','Cerai Hidup','Cerai Mati'] as $v): ?>
-                                    <option value="<?= e($v) ?>" <?= $statusPerkawinanUser === $v ? 'selected' : '' ?>><?= e($v) ?></option>
-                                <?php endforeach; ?>
-                            </select>
                         </div>
                         <?php endif; ?>
 
@@ -1176,6 +1210,21 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover{
                             <textarea name="alamat" id="alamat" placeholder="Jalan, RT/RW, Kelurahan, Kecamatan, Kota" <?= isFieldRequired('alamat', true) ? 'required' : '' ?>><?= e($alamatUser) ?></textarea>
                         </div>
                         <?php endif; ?>
+
+                        <?php
+                        // Tampilkan field kustom baru yang ditambahkan admin jika ada
+                        foreach ($formFieldConfig as $fcKey => $fc):
+                            if (!empty($fc['is_custom']) && $fc['status'] === 'aktif' && (int)$fc['tahap'] === 1):
+                                $valCust = $_SESSION[$fcKey] ?? '';
+                        ?>
+                        <div class="form-group">
+                            <label for="custom_<?= e($fcKey) ?>"><?= e($fc['label_field']) ?> <?= ((int)$fc['wajib'] === 1) ? '*' : '(Opsional)' ?></label>
+                            <input type="text" name="<?= e($fcKey) ?>" id="custom_<?= e($fcKey) ?>" value="<?= e($valCust) ?>" placeholder="<?= e($fc['keterangan'] ?: 'Masukkan ' . $fc['label_field']) ?>" <?= ((int)$fc['wajib'] === 1) ? 'required' : '' ?>>
+                        </div>
+                        <?php
+                            endif;
+                        endforeach;
+                        ?>
                     </div>
 
                     <?php if ($isLogin): ?>
@@ -1301,15 +1350,31 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover{
                         <span class="section-badge">Langkah 2 dari 3</span>
                     </div>
 
+                    <!-- BANNER PERSALINAN 24 JAM SELALU TERSEDIA -->
+                    <div style="background: linear-gradient(135deg, #FAF5FF 0%, #F3E8FF 100%); border: 1.5px solid #D8B4FE; border-radius: 14px; padding: 14px 18px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <span style="font-size: 26px;">🤱</span>
+                            <div>
+                                <strong style="color: #6B21A8; font-size: 13.5px; display: block;">Layanan Persalinan 24 Jam Selalu Tersedia</strong>
+                                <span style="color: #581C87; font-size: 12px;">Siaga penuh 24/7 tanpa penutupan pendaftaran untuk persalinan &amp; tindakan darurat kebidanan.</span>
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-sm" onclick="pilihPersalinan24Jam()" style="background: #7E22CE; color: #fff; font-size: 12px; font-weight: 800; padding: 7px 15px; border-radius: 8px; border: none; cursor: pointer;">
+                            Pilih Persalinan 24 Jam →
+                        </button>
+                    </div>
+
                     <div class="form-grid" style="margin-bottom:18px;">
-                        <!-- 1. POLI PELAYANAN (DITARUH PALING AWAL) -->
+                        <!-- 1. POLI PELAYANAN (PERSALINAN 24 JAM DITAMPILKAN PALING ATAS) -->
                         <div class="form-group" id="group_poli">
                             <label for="id_poli">Poli Pelayanan *</label>
                             <select name="id_poli" id="id_poli" required onchange="onFilterChange()">
                                 <option value="">-- Pilih Poli --</option>
-                                <?php foreach ($dataPoli as $poli): ?>
+                                <?php foreach ($dataPoli as $poli): 
+                                    $is24 = ((int)($poli['is_24jam'] ?? 0) === 1 || (int)$poli['id_poli'] === 5 || stripos($poli['nama_poli'], 'persalinan') !== false);
+                                ?>
                                     <option value="<?= (int)$poli['id_poli'] ?>" <?= $poliTerpilih === (int)$poli['id_poli'] ? 'selected' : '' ?>>
-                                        <?= e($poli['nama_poli']) ?>
+                                        <?= e($poli['nama_poli']) ?><?= $is24 ? ' (✨ Siaga 24 Jam Nonstop)' : '' ?>
                                     </option>
                                 <?php endforeach; ?>
                             </select>
@@ -1562,6 +1627,16 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover{
                             <div class="confirm-value" id="confirmNik">-</div>
                         </div>
 
+                        <div class="confirm-item" id="boxConfirmNamaIbu">
+                            <span class="confirm-label">Nama Ibu Kandung</span>
+                            <div class="confirm-value" id="confirmNamaIbu">-</div>
+                        </div>
+
+                        <div class="confirm-item" id="boxConfirmNamaSuami">
+                            <span class="confirm-label" id="confirmLabelSuami">Nama Suami / Ayah Kandung</span>
+                            <div class="confirm-value" id="confirmNamaSuami">-</div>
+                        </div>
+
                         <div class="confirm-item">
                             <span class="confirm-label">Kategori / Penjamin</span>
                             <div class="confirm-value" id="confirmJenisPasien" style="font-weight:800;color:var(--button);">Pasien Umum / Mandiri</div>
@@ -1741,7 +1816,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover{
 
                     <div>
                         <label style="font-size:12px;font-weight:800;color:#352D3E;display:block;margin-bottom:4px;">Hubungan Keluarga *</label>
-                        <select id="kel_hubungan" required style="width:100%;padding:10px 12px;border:1px solid #D2C1EC;border-radius:10px;font-size:13px;box-sizing:border-box;background:#fff;">
+                        <select id="kel_hubungan" required onchange="updateKelAyahSuamiField()" style="width:100%;padding:10px 12px;border:1px solid #D2C1EC;border-radius:10px;font-size:13px;box-sizing:border-box;background:#fff;">
                             <option value="Istri / Pasangan">Istri / Pasangan</option>
                             <option value="Suami / Pasangan">Suami / Pasangan</option>
                             <option value="Anak">Anak</option>
@@ -1753,7 +1828,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover{
 
                     <div>
                         <label style="font-size:12px;font-weight:800;color:#352D3E;display:block;margin-bottom:4px;">Tanggal Lahir *</label>
-                        <input type="date" id="kel_tanggal_lahir" required style="width:100%;padding:10px 12px;border:1px solid #D2C1EC;border-radius:10px;font-size:13px;box-sizing:border-box;">
+                        <input type="date" id="kel_tanggal_lahir" required onchange="updateKelAyahSuamiField()" style="width:100%;padding:10px 12px;border:1px solid #D2C1EC;border-radius:10px;font-size:13px;box-sizing:border-box;">
                     </div>
 
                     <div>
@@ -1762,6 +1837,28 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover{
                             <option value="P">Perempuan</option>
                             <option value="L">Laki-laki</option>
                         </select>
+                    </div>
+
+                    <div>
+                        <label style="font-size:12px;font-weight:800;color:#352D3E;display:block;margin-bottom:4px;">Status Perkawinan</label>
+                        <select id="kel_status_perkawinan" onchange="updateKelAyahSuamiField()" style="width:100%;padding:10px 12px;border:1px solid #D2C1EC;border-radius:10px;font-size:13px;box-sizing:border-box;background:#fff;">
+                            <option value="">-- Pilih Status --</option>
+                            <option value="Belum Menikah">Belum Menikah</option>
+                            <option value="Menikah">Menikah</option>
+                            <option value="Cerai Hidup">Cerai Hidup</option>
+                            <option value="Cerai Mati">Cerai Mati</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label style="font-size:12px;font-weight:800;color:#352D3E;display:block;margin-bottom:4px;">Nama Ibu Kandung</label>
+                        <input type="text" id="kel_nama_ibu_kandung" placeholder="Sesuai KK / Akta" style="width:100%;padding:10px 12px;border:1px solid #D2C1EC;border-radius:10px;font-size:13px;box-sizing:border-box;">
+                    </div>
+
+                    <div>
+                        <label id="kel_label_suami_ayah" style="font-size:12px;font-weight:800;color:#352D3E;display:block;margin-bottom:4px;">Nama Ayah Kandung</label>
+                        <input type="text" id="kel_nama_suami" placeholder="Contoh: Nama ayah kandung sesuai Kartu Keluarga (KK)" style="width:100%;padding:10px 12px;border:1px solid #D2C1EC;border-radius:10px;font-size:13px;box-sizing:border-box;">
+                        <input type="hidden" id="kel_nama_ayah_kandung">
                     </div>
 
                     <div>
@@ -1777,17 +1874,6 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover{
                     <div>
                         <label style="font-size:12px;font-weight:800;color:#352D3E;display:block;margin-bottom:4px;">Pekerjaan</label>
                         <input type="text" id="kel_pekerjaan" placeholder="Contoh: Karyawan, Pelajar" style="width:100%;padding:10px 12px;border:1px solid #D2C1EC;border-radius:10px;font-size:13px;box-sizing:border-box;">
-                    </div>
-
-                    <div>
-                        <label style="font-size:12px;font-weight:800;color:#352D3E;display:block;margin-bottom:4px;">Status Perkawinan</label>
-                        <select id="kel_status_perkawinan" style="width:100%;padding:10px 12px;border:1px solid #D2C1EC;border-radius:10px;font-size:13px;box-sizing:border-box;background:#fff;">
-                            <option value="">-- Pilih Status --</option>
-                            <option value="Belum Menikah">Belum Menikah</option>
-                            <option value="Menikah">Menikah</option>
-                            <option value="Cerai Hidup">Cerai Hidup</option>
-                            <option value="Cerai Mati">Cerai Mati</option>
-                        </select>
                     </div>
 
                     <div>
@@ -2042,6 +2128,9 @@ function pilihAnggotaKeluarga(k, btn) {
 
     if (document.getElementById('nik')) document.getElementById('nik').value = k.nik || '';
     if (document.getElementById('nama_lengkap')) document.getElementById('nama_lengkap').value = k.nama_lengkap || '';
+    if (document.getElementById('nama_ibu_kandung')) document.getElementById('nama_ibu_kandung').value = k.nama_ibu_kandung || '';
+    if (document.getElementById('nama_suami')) document.getElementById('nama_suami').value = k.nama_suami || k.nama_ayah_kandung || '';
+    if (document.getElementById('nama_ayah_kandung')) document.getElementById('nama_ayah_kandung').value = k.nama_ayah_kandung || '';
     if (document.getElementById('tanggal_lahir')) document.getElementById('tanggal_lahir').value = k.tanggal_lahir || '';
     if (document.getElementById('jenis_kelamin')) document.getElementById('jenis_kelamin').value = k.jenis_kelamin || 'P';
     if (document.getElementById('no_telepon')) document.getElementById('no_telepon').value = k.no_telepon || '';
@@ -2052,6 +2141,7 @@ function pilihAnggotaKeluarga(k, btn) {
     if (document.getElementById('pendidikan_terakhir')) document.getElementById('pendidikan_terakhir').value = k.pendidikan_terakhir || '';
     if (document.getElementById('agama')) document.getElementById('agama').value = k.agama || '';
     if (document.getElementById('id_pasien')) document.getElementById('id_pasien').value = '';
+    updateAyahSuamiField();
 }
 
 function bukaModalTambahKeluarga() {
@@ -2076,6 +2166,9 @@ function simpanAnggotaKeluarga(e) {
     const data = new FormData();
     data.append('nama_lengkap', document.getElementById('kel_nama').value.trim());
     data.append('nik', document.getElementById('kel_nik').value.trim());
+    data.append('nama_ibu_kandung', document.getElementById('kel_nama_ibu_kandung') ? document.getElementById('kel_nama_ibu_kandung').value.trim() : '');
+    data.append('nama_suami', document.getElementById('kel_nama_suami') ? document.getElementById('kel_nama_suami').value.trim() : '');
+    data.append('nama_ayah_kandung', document.getElementById('kel_nama_ayah_kandung') ? document.getElementById('kel_nama_ayah_kandung').value.trim() : '');
     data.append('hubungan', document.getElementById('kel_hubungan').value);
     data.append('tanggal_lahir', document.getElementById('kel_tanggal_lahir').value);
     data.append('jenis_kelamin', document.getElementById('kel_jenis_kelamin').value);
@@ -2141,6 +2234,9 @@ function escapeHtml(text) {
 function isiDataSendiri() {
     document.getElementById('nik').value = <?= json_encode($nikUser) ?>;
     document.getElementById('nama_lengkap').value = <?= json_encode($namaPasien) ?>;
+    if (document.getElementById('nama_ibu_kandung')) document.getElementById('nama_ibu_kandung').value = <?= json_encode($namaIbuKandungUser) ?>;
+    if (document.getElementById('nama_suami')) document.getElementById('nama_suami').value = <?= json_encode($namaSuamiUser ?: $namaAyahKandungUser) ?>;
+    if (document.getElementById('nama_ayah_kandung')) document.getElementById('nama_ayah_kandung').value = <?= json_encode($namaAyahKandungUser) ?>;
     document.getElementById('tanggal_lahir').value = <?= json_encode($tanggalLahirUser) ?>;
     document.getElementById('jenis_kelamin').value = <?= json_encode($jenisKelaminUser) ?>;
     document.getElementById('no_telepon').value = <?= json_encode($teleponUser) ?>;
@@ -2151,6 +2247,7 @@ function isiDataSendiri() {
     document.getElementById('pendidikan_terakhir').value = <?= json_encode($pendidikanUser) ?>;
     document.getElementById('agama').value = <?= json_encode($agamaUser) ?>;
     document.getElementById('id_pasien').value = '';
+    updateAyahSuamiField();
 }
 
 function setRujukanChoice(val) {
@@ -2332,6 +2429,9 @@ function cekKetersediaanSesi(activeSessions) {
 
     const nowMinutes = (now.getHours() * 60) + now.getMinutes();
 
+    const selPoliEl = document.getElementById('id_poli');
+    const isPersalinan = selPoliEl && (selPoliEl.value === '5' || (selPoliEl.options[selPoliEl.selectedIndex]?.textContent || '').toLowerCase().includes('persalinan'));
+
     let firstActive = null;
     let totalActive = 0;
 
@@ -2340,9 +2440,14 @@ function cekKetersediaanSesi(activeSessions) {
         const cutoff = sessObj ? sessObj.cutoff : (opt.value === 'Pagi' ? 720 : (opt.value === 'Siang' ? 960 : 1230));
         const baseLabel = sessObj ? sessObj.label : opt.textContent;
 
-        if (isToday && nowMinutes >= cutoff) {
+        if (isPersalinan) {
+            opt.disabled = false;
+            opt.textContent = baseLabel + ' (✨ Siaga 24 Jam Nonstop)';
+            totalActive++;
+            if (!firstActive) firstActive = opt.value;
+        } else if (isToday && nowMinutes >= cutoff) {
             opt.disabled = true;
-            opt.textContent = baseLabel + ' (⛔ Selesai)';
+            opt.textContent = baseLabel + ' (⛔ Pendaftaran Ditutup)';
         } else {
             opt.disabled = false;
             opt.textContent = baseLabel;
@@ -2370,9 +2475,9 @@ function cekKetersediaanSesi(activeSessions) {
         selectSesi.required = true;
     }
 
-    if (isToday && totalActive === 0) {
+    if (isToday && totalActive === 0 && !isPersalinan) {
         alertBox.style.display = 'block';
-        alertBox.innerHTML = '⚠️ <strong>Seluruh Sesi Pelayanan Hari Ini Telah Selesai:</strong> Pendaftaran online untuk hari ini sudah ditutup karena seluruh jam sesi telah berakhir. Silakan pilih tanggal besok atau hari lain.';
+        alertBox.innerHTML = '⚠️ <strong>Pendaftaran Ditutup:</strong> Seluruh sesi pelayanan untuk tanggal ini telah ditutup. Silakan pilih tanggal besok atau hari lain.';
     } else {
         alertBox.style.display = 'none';
     }
@@ -2432,6 +2537,13 @@ function populateTindakanForPoli(idPoli, preferredValue = null) {
             }
         }
 
+        // Syarat 4: Persalinan 24 Jam (5) hanya tindakan persalinan / kebidanan bersalin
+        if (poliStr === '5') {
+            if (namaLower.includes('gigi') || namaLower.includes('umum') || namaLower.includes('darah')) {
+                return false;
+            }
+        }
+
         // Periksa kesesuaian kolom id_poli_terkait dari database
         if (terkait === '' || terkait === 'all') return true;
         const polis = terkait.split(',').map(s => s.trim());
@@ -2443,6 +2555,9 @@ function populateTindakanForPoli(idPoli, preferredValue = null) {
         if (poliStr === '2') {
             fallbackOpt.value = 'Pemeriksaan Gigi & Mulut';
             fallbackOpt.textContent = '🦷 Pemeriksaan Gigi & Mulut';
+        } else if (poliStr === '5') {
+            fallbackOpt.value = 'Persalinan 24 Jam (Bersalin)';
+            fallbackOpt.textContent = '🤰 Persalinan 24 Jam (Bersalin)';
         } else if (poliStr === '3' || poliStr === '4') {
             fallbackOpt.value = 'Pelayanan Kebidanan & ANC';
             fallbackOpt.textContent = '🤱 Pelayanan Kebidanan & ANC';
@@ -2481,6 +2596,11 @@ function populateTindakanForPoli(idPoli, preferredValue = null) {
                 found = true;
                 break;
             }
+            if ((initLayananUrl.includes('persalinan') || initLayananUrl.includes('bersalin')) && optVal.includes('persalinan')) {
+                tindakanSel.selectedIndex = i;
+                found = true;
+                break;
+            }
         }
     }
 
@@ -2494,6 +2614,8 @@ function populateTindakanForPoli(idPoli, preferredValue = null) {
             hintEl.innerHTML = '💡 Tersedia Pemeriksaan Medis Umum, Cek Darah / Lab, dan Imunisasi';
         } else if (poliStr === '2') {
             hintEl.innerHTML = '💡 Layanan pemeriksaan dan perawatan kesehatan gigi &amp; mulut';
+        } else if (poliStr === '5') {
+            hintEl.innerHTML = '💡 <strong>Persalinan 24 Jam Siaga:</strong> Pertolongan persalinan normal dan kebidanan darurat siaga 24 jam nonstop didampingi bidan bersertifikat.';
         } else if (poliStr === '3' || poliStr === '4') {
             hintEl.innerHTML = '💡 Layanan kebidanan, pemeriksaan kehamilan ANC, USG &amp; Sp.OG';
         } else {
@@ -2518,6 +2640,22 @@ function updateTindakanVisibility() {
     groupTindakan.style.display = 'block';
     if (groupPoli) groupPoli.classList.remove('poli-full');
     if (tindakanSel) tindakanSel.required = true;
+}
+
+function pilihPersalinan24Jam() {
+    const sel = document.getElementById('id_poli');
+    if (!sel) return;
+    for (let i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === '5' || sel.options[i].text.toLowerCase().includes('persalinan')) {
+            sel.value = sel.options[i].value;
+            break;
+        }
+    }
+    onFilterChange();
+    const groupPoli = document.getElementById('group_poli');
+    if (groupPoli) {
+        groupPoli.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
 }
 
 function onFilterChange() {
@@ -2637,14 +2775,20 @@ async function hitungAntreanOtomatis() {
 
             // Jika hari ini pendaftaran ditutup (kurang 1 jam / cutoff / kuota habis)
             if (currentPreviewData.tersedia === false) {
-                document.getElementById('previewNote').innerHTML = '<span style="color:#B72B2B;font-weight:800;">⛔ ' + currentPreviewData.keterangan_ketersediaan + '</span>';
-                document.getElementById('previewNomorAntrean').innerHTML = '<span style="color:#B72B2B;font-size:14px;font-weight:800;">⛔ Pendaftaran Tutup</span>';
+                const isFull = (currentPreviewData.status_label === 'Full Booking' || (currentPreviewData.keterangan_ketersediaan || '').toLowerCase().includes('full booking'));
+                if (isFull) {
+                    document.getElementById('previewNote').innerHTML = '<span style="color:#D97706;font-weight:800;">🟡 Full Booking — Kuota pendaftaran untuk jadwal ini telah terisi penuh.</span>';
+                    document.getElementById('previewNomorAntrean').innerHTML = '<span style="color:#D97706;font-size:14px;font-weight:800;">🟡 Full Booking</span>';
+                } else {
+                    document.getElementById('previewNote').innerHTML = '<span style="color:#B72B2B;font-weight:800;">⛔ Pendaftaran Ditutup</span>';
+                    document.getElementById('previewNomorAntrean').innerHTML = '<span style="color:#B72B2B;font-size:14px;font-weight:800;">⛔ Pendaftaran Ditutup</span>';
+                }
                 const btnNext = document.querySelector('.step-panel[data-step="2"] .btn-primary');
                 if (btnNext) {
                     btnNext.disabled = true;
                     btnNext.style.opacity = '0.5';
                     btnNext.style.cursor = 'not-allowed';
-                    btnNext.title = 'Pendaftaran ditutup untuk jadwal ini';
+                    btnNext.title = isFull ? 'Full Booking untuk jadwal ini' : 'Pendaftaran ditutup untuk jadwal ini';
                 }
                 
                 if (data.jadwal_tersisa_minggu && data.jadwal_tersisa_minggu.length > 0) {
@@ -2707,6 +2851,22 @@ function updateConfirmation() {
 
     document.getElementById('confirmNama').textContent = val('nama_lengkap');
     document.getElementById('confirmNik').textContent = val('nik');
+    const ibuVal = val('nama_ibu_kandung');
+    const suamiVal = val('nama_suami');
+    const ayahVal = val('nama_ayah_kandung');
+    const statusNikahVal = val('status_perkawinan');
+    const isBelumMenikahConf = (!statusNikahVal || statusNikahVal === 'Belum Menikah');
+
+    const lblConfirmSuami = document.getElementById('confirmLabelSuami');
+    if (lblConfirmSuami) {
+        lblConfirmSuami.textContent = isBelumMenikahConf ? 'Nama Ayah Kandung' : 'Nama Suami / Pasangan';
+    }
+
+    if (document.getElementById('confirmNamaIbu')) document.getElementById('confirmNamaIbu').textContent = ibuVal !== '-' && ibuVal ? ibuVal : '(Tidak diisi)';
+    if (document.getElementById('confirmNamaSuami')) {
+        const valToDisplay = (suamiVal !== '-' && suamiVal) ? suamiVal : ((ayahVal !== '-' && ayahVal) ? ayahVal : '(Tidak diisi)');
+        document.getElementById('confirmNamaSuami').textContent = valToDisplay;
+    }
     const jenisPasienVal = val('field_jenis_pasien');
     document.getElementById('confirmJenisPasien').textContent = (jenisPasienVal === 'BPJS') ? '💳 BPJS Kesehatan' : '💵 Pasien Umum / Mandiri';
     document.getElementById('confirmNomorJkn').textContent = (jenisPasienVal === 'BPJS') ? (val('nomor_antrean_jkn') || '-') : '- (Khusus Pasien BPJS)';
@@ -2812,6 +2972,8 @@ async function simpanDataDiri() {
             const formData = new FormData();
             formData.append('nama_lengkap', document.getElementById('nama_lengkap').value.trim());
             formData.append('nik', document.getElementById('nik').value.trim());
+            formData.append('nama_ibu_kandung', document.getElementById('nama_ibu_kandung') ? document.getElementById('nama_ibu_kandung').value.trim() : '');
+            formData.append('nama_suami', document.getElementById('nama_suami') ? document.getElementById('nama_suami').value.trim() : '');
             formData.append('tanggal_lahir', document.getElementById('tanggal_lahir').value);
             formData.append('jenis_kelamin', document.getElementById('jenis_kelamin').value);
             formData.append('no_telepon', document.getElementById('no_telepon').value.trim());
@@ -2892,7 +3054,7 @@ async function simpanDataDiri() {
         } else {
             const formData = new FormData();
             formData.append('action', 'save_data_only');
-            ['nik','nama_lengkap','tanggal_lahir','jenis_kelamin','no_telepon','email','alamat','pekerjaan','status_perkawinan','pendidikan_terakhir','agama'].forEach(id => {
+            ['nik','nama_lengkap','nama_ibu_kandung','nama_suami','tanggal_lahir','jenis_kelamin','no_telepon','email','alamat','pekerjaan','status_perkawinan','pendidikan_terakhir','agama'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) formData.append(id, el.value);
             });
@@ -2915,6 +3077,87 @@ async function simpanDataDiri() {
     }
 }
 
+function updateAyahSuamiField() {
+    const tglLahirElem = document.getElementById('tanggal_lahir');
+    const statusNikahElem = document.getElementById('status_perkawinan');
+    const labelElem = document.getElementById('label_ayah_suami');
+    const inputSuami = document.getElementById('nama_suami');
+    const inputAyah = document.getElementById('nama_ayah_kandung');
+    const hintElem = document.getElementById('hint_ayah_suami');
+
+    if (!labelElem || !inputSuami) return;
+
+    let isAnak = false;
+    const tglLahirVal = tglLahirElem ? tglLahirElem.value : '';
+    if (tglLahirVal) {
+        const birthDate = new Date(tglLahirVal);
+        const today = new Date();
+        let age = today.getFullYear() - birthDate.getFullYear();
+        const m = today.getMonth() - birthDate.getMonth();
+        if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+            age--;
+        }
+        if (age < 17) isAnak = true;
+    }
+
+    const rawNikah = statusNikahElem ? (statusNikahElem.value || '').trim().toLowerCase() : '';
+    const isMenikah = (rawNikah === 'menikah' || rawNikah === 'cerai hidup' || rawNikah === 'cerai mati');
+    const isWajib = <?= (isFieldRequired('nama_suami') || isFieldRequired('nama_ayah_kandung')) ? 'true' : 'false' ?>;
+
+    if (isMenikah && !isAnak) {
+        labelElem.innerHTML = 'Nama Suami ' + (isWajib ? '*' : '(Opsional)');
+        inputSuami.placeholder = 'Contoh: Nama lengkap suami sesuai KTP';
+        if (hintElem) {
+            hintElem.innerHTML = '💍 Status Menikah: cantumkan nama suami.';
+        }
+    } else {
+        labelElem.innerHTML = 'Nama Ayah Kandung ' + (isWajib ? '*' : '(Opsional)');
+        inputSuami.placeholder = 'Contoh: Nama ayah kandung sesuai Kartu Keluarga (KK)';
+        if (hintElem) {
+            hintElem.innerHTML = isAnak 
+                ? '👶 Pasien anak (< 17 tahun): cantumkan nama ayah kandung sesuai Kartu Keluarga.'
+                : '👤 Status Belum Menikah / Pasien Anak: cantumkan nama ayah kandung.';
+        }
+        if (inputAyah && inputSuami.value) {
+            inputAyah.value = inputSuami.value;
+        }
+    }
+}
+
+function updateKelAyahSuamiField() {
+    const tglElem = document.getElementById('kel_tanggal_lahir');
+    const nikahElem = document.getElementById('kel_status_perkawinan');
+    const hubElem = document.getElementById('kel_hubungan');
+    const labelElem = document.getElementById('kel_label_suami_ayah');
+    const inputSuami = document.getElementById('kel_nama_suami');
+    const inputAyah = document.getElementById('kel_nama_ayah_kandung');
+    if (!labelElem || !inputSuami) return;
+
+    let isAnak = false;
+    if (tglElem && tglElem.value) {
+        const birthDate = new Date(tglElem.value);
+        const today = new Date();
+        let age = today.getFullYear() - birthDate.getFullYear();
+        const m = today.getMonth() - birthDate.getMonth();
+        if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
+        if (age < 17) isAnak = true;
+    }
+    const hubVal = (hubElem ? hubElem.value : '').toLowerCase();
+    if (hubVal.includes('anak')) isAnak = true;
+
+    const nikahVal = (nikahElem ? nikahElem.value : '').trim().toLowerCase();
+    const isMenikah = (nikahVal === 'menikah' || nikahVal === 'cerai hidup' || nikahVal === 'cerai mati');
+
+    if (isMenikah && !isAnak) {
+        labelElem.textContent = 'Nama Suami';
+        inputSuami.placeholder = 'Contoh: Nama lengkap suami sesuai KTP';
+    } else {
+        labelElem.textContent = 'Nama Ayah Kandung';
+        inputSuami.placeholder = 'Contoh: Nama ayah kandung sesuai Kartu Keluarga (KK)';
+        if (inputAyah && inputSuami.value) inputAyah.value = inputSuami.value;
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     // Pastikan seluruh choice card (tipe pasien, penjamin biaya, rujukan) dapat diklik secara responsif
     document.querySelectorAll('.choice-card').forEach(function(card) {
@@ -2926,6 +3169,39 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     });
+
+    // Pasang listener dinamis untuk perubahan status perkawinan dan tanggal lahir
+    const tglInput = document.getElementById('tanggal_lahir');
+    const nikahInput = document.getElementById('status_perkawinan');
+    const suamiInput = document.getElementById('nama_suami');
+    const ayahInput = document.getElementById('nama_ayah_kandung');
+
+    if (tglInput) tglInput.addEventListener('change', updateAyahSuamiField);
+    if (nikahInput) nikahInput.addEventListener('change', updateAyahSuamiField);
+    if (suamiInput) {
+        suamiInput.addEventListener('input', function() {
+            const raw = (nikahInput ? nikahInput.value : '').trim().toLowerCase();
+            const isNikah = (raw === 'menikah' || raw === 'cerai hidup' || raw === 'cerai mati');
+            if (!isNikah && ayahInput) {
+                ayahInput.value = this.value;
+            }
+        });
+    }
+    updateAyahSuamiField();
+
+    const kelSuamiInput = document.getElementById('kel_nama_suami');
+    const kelAyahInput = document.getElementById('kel_nama_ayah_kandung');
+    if (kelSuamiInput) {
+        kelSuamiInput.addEventListener('input', function() {
+            const kelNikahElem = document.getElementById('kel_status_perkawinan');
+            const rawK = (kelNikahElem ? kelNikahElem.value : '').trim().toLowerCase();
+            const isNikahK = (rawK === 'menikah' || rawK === 'cerai hidup' || rawK === 'cerai mati');
+            if (!isNikahK && kelAyahInput) {
+                kelAyahInput.value = this.value;
+            }
+        });
+    }
+    updateKelAyahSuamiField();
 
     onFilterChange();
     const initDoc = <?= (int)$dokterTerpilih ?>;

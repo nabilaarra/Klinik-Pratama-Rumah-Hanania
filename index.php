@@ -2,6 +2,7 @@
 date_default_timezone_set('Asia/Jakarta');
 session_start();
 include_once __DIR__ . '/config/database.php';
+require_once __DIR__ . '/includes/poli_helper.php';
 
 $sudah_login = isset($_SESSION['id_user']) && $_SESSION['role'] === 'pasien';
 
@@ -296,6 +297,7 @@ $tanggalHariIni = date('d') . ' ' . $namaBulanIndonesia[(int)date('n')] . ' ' . 
 $dataJadwalHariIni = array_values(array_filter($dataJadwal, function ($jadwal) use ($hariIni) {
     return strcasecmp(trim((string)$jadwal['hari']), $hariIni) === 0;
 }));
+$allPoliMapIndex = (isset($conn) && $conn) ? getAllPoliMap($conn) : [];
 
 // Ambil Ulasan Google Maps & Pasien Web
 $rawUlasanGoogle = getSiteKonten('daftar_ulasan_google', '');
@@ -4293,19 +4295,25 @@ $daftarUlasanGoogle = array_values(array_filter($daftarUlasanGoogle, function ($
                 <tbody>
 <?php if (!empty($dataJadwalHariIni)): ?>
 <?php foreach ($dataJadwalHariIni as $jadwal): 
-    $nowTs = time();
-    $startTs = strtotime(date('Y-m-d') . ' ' . $jadwal['jam_mulai']);
-    $endTs = strtotime(date('Y-m-d') . ' ' . $jadwal['jam_selesai']);
-    // Pendaftaran ditutup otomatis jika masuk 1 jam sebelum jadwal mulai atau jadwal selesai
-    $isClosedToday = (($jadwal['status'] ?? 'tersedia') !== 'tersedia') || ($nowTs >= ($startTs - 3600)) || ($nowTs >= $endTs);
+    $poliItem = $allPoliMapIndex[(int)($jadwal['id_poli'] ?? 0)] ?? null;
+    $statusJadwal = cekStatusJadwalPoli($poliItem, $jadwal['jam_mulai'], $jadwal['jam_selesai'], true, $jadwal['peran'] ?? '');
+    $isClosedToday = $statusJadwal['is_closed'];
 ?>
 <tr>
 <td><span class="schedule-name"><?= eIndex($jadwal['nama_tenaga']) ?></span><span class="schedule-role"><?= eIndex($jadwal['peran']) ?></span></td>
 <td><?= eIndex($jadwal['hari']) ?></td>
-<td><?= eIndex(jamIndex($jadwal['jam_mulai'])) ?> - <?= eIndex(jamIndex($jadwal['jam_selesai'])) ?></td>
 <td>
-    <?php if ($isClosedToday): ?>
-        <span class="schedule-status" style="background:#FEE2E2;color:#991B1B;border:1px solid #FECACA;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:800;">⛔ Ditutup</span>
+    <?php if (!empty($statusJadwal['is_24jam'])): ?>
+        <strong style="color:#6D28D9;">Pelayanan 24 Jam Non-Stop</strong>
+    <?php else: ?>
+        <?= eIndex(jamIndex($jadwal['jam_mulai'])) ?> - <?= eIndex(jamIndex($jadwal['jam_selesai'])) ?>
+    <?php endif; ?>
+</td>
+<td>
+    <?php if (!empty($statusJadwal['is_24jam'])): ?>
+        <span class="schedule-status" style="background:#EDE9FE;color:#6D28D9;border:1px solid #DDD6FE;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:800;" title="Siaga 24 Jam non-stop">✨ Tersedia 24 Jam</span>
+    <?php elseif ($isClosedToday): ?>
+        <span class="schedule-status" style="background:#FEE2E2;color:#991B1B;border:1px solid #FECACA;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:800;" title="<?= eIndex($statusJadwal['message']) ?>">⛔ Ditutup (1 Jam Sblm Selesai)</span>
     <?php else: ?>
         <span class="schedule-status" style="background:#EAF7EF;color:#10B981;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:800;">Tersedia</span>
     <?php endif; ?>

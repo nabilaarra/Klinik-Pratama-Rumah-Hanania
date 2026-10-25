@@ -23,6 +23,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $statusKawin = trim($_POST['status_perkawinan'] ?? '');
             $pendidikan = trim($_POST['pendidikan_terakhir'] ?? '');
             $agama = trim($_POST['agama'] ?? '');
+            $namaIbu = trim($_POST['nama_ibu_kandung'] ?? '');
+            $namaSuami = trim($_POST['nama_suami'] ?? '');
+            $namaAyah = trim($_POST['nama_ayah_kandung'] ?? '');
             $adaRujukan = in_array($_POST['ada_rujukan'] ?? '', ['Ya', 'Tidak'], true) ? $_POST['ada_rujukan'] : 'Tidak';
             $asalRujukan = ($adaRujukan === 'Ya') ? trim($_POST['asal_rujukan'] ?? '') : null;
 
@@ -51,8 +54,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     nik, nama_lengkap, tanggal_lahir, jenis_kelamin, 
                     no_telepon, email, alamat, pekerjaan, 
                     status_perkawinan, pendidikan_terakhir, agama, 
+                    nama_ibu_kandung, nama_suami, nama_ayah_kandung,
                     ada_rujukan, asal_rujukan
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
 
             if (!$stmt) {
@@ -60,10 +64,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $stmt->bind_param(
-                'sssssssssssss',
+                'ssssssssssssssss',
                 $nik, $nama, $tglLahir, $jk,
                 $telp, $email, $alamat, $pekerjaan,
                 $statusKawin, $pendidikan, $agama,
+                $namaIbu, $namaSuami, $namaAyah,
                 $adaRujukan, $asalRujukan
             );
 
@@ -90,6 +95,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $statusKawin = trim($_POST['status_perkawinan'] ?? '');
             $pendidikan = trim($_POST['pendidikan_terakhir'] ?? '');
             $agama = trim($_POST['agama'] ?? '');
+            $namaIbu = trim($_POST['nama_ibu_kandung'] ?? '');
+            $namaSuami = trim($_POST['nama_suami'] ?? '');
+            $namaAyah = trim($_POST['nama_ayah_kandung'] ?? '');
             $adaRujukan = in_array($_POST['ada_rujukan'] ?? '', ['Ya', 'Tidak'], true) ? $_POST['ada_rujukan'] : 'Tidak';
             $asalRujukan = ($adaRujukan === 'Ya') ? trim($_POST['asal_rujukan'] ?? '') : null;
 
@@ -129,6 +137,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     status_perkawinan = ?, 
                     pendidikan_terakhir = ?, 
                     agama = ?, 
+                    nama_ibu_kandung = ?, 
+                    nama_suami = ?, 
+                    nama_ayah_kandung = ?,
                     ada_rujukan = ?, 
                     asal_rujukan = ?
                 WHERE id_pasien = ?
@@ -139,10 +150,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $stmt->bind_param(
-                'sssssssssssssi',
+                'ssssssssssssssssi',
                 $nik, $nama, $tglLahir, $jk,
                 $telp, $email, $alamat, $pekerjaan,
                 $statusKawin, $pendidikan, $agama,
+                $namaIbu, $namaSuami, $namaAyah,
                 $adaRujukan, $asalRujukan,
                 $idPasien
             );
@@ -822,6 +834,21 @@ adminPageStart('Data Pasien', 'pasien');
                     </div>
                 </div>
 
+                <div class="form-grid-3" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+                    <div class="form-group-field">
+                        <label>Nama Ibu Kandung</label>
+                        <input type="text" name="nama_ibu_kandung" placeholder="Nama ibu kandung pasien" class="filter-input">
+                    </div>
+                    <div class="form-group-field">
+                        <label>Nama Ayah Kandung</label>
+                        <input type="text" name="nama_ayah_kandung" placeholder="Khusus pasien anak/belum nikah" class="filter-input">
+                    </div>
+                    <div class="form-group-field">
+                        <label>Nama Suami / Pasangan</label>
+                        <input type="text" name="nama_suami" placeholder="Khusus pasien menikah" class="filter-input">
+                    </div>
+                </div>
+
                 <div class="form-grid-2">
                     <div class="form-group-field">
                         <label>Status Rujukan</label>
@@ -949,6 +976,21 @@ adminPageStart('Data Pasien', 'pasien');
                     </div>
                 </div>
 
+                <div class="form-grid-3" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+                    <div class="form-group-field">
+                        <label>Nama Ibu Kandung</label>
+                        <input type="text" name="nama_ibu_kandung" id="editPasienNamaIbu" placeholder="Nama ibu kandung" class="filter-input">
+                    </div>
+                    <div class="form-group-field">
+                        <label>Nama Ayah Kandung</label>
+                        <input type="text" name="nama_ayah_kandung" id="editPasienNamaAyah" placeholder="Nama ayah kandung" class="filter-input">
+                    </div>
+                    <div class="form-group-field">
+                        <label>Nama Suami / Pasangan</label>
+                        <input type="text" name="nama_suami" id="editPasienNamaSuami" placeholder="Nama suami (jika ada)" class="filter-input">
+                    </div>
+                </div>
+
                 <div class="form-grid-2">
                     <div class="form-group-field">
                         <label>Status Rujukan</label>
@@ -1001,6 +1043,11 @@ function lihatDetailPasien(p) {
         { label: 'Status Perkawinan', val: p.status_perkawinan },
         { label: 'Pendidikan Terakhir', val: p.pendidikan_terakhir },
         { label: 'Agama', val: p.agama },
+        { label: 'Nama Ibu Kandung', val: p.nama_ibu_kandung },
+        { 
+            label: (p.status_perkawinan === 'Belum Menikah' || !p.status_perkawinan) ? 'Nama Ayah Kandung' : 'Nama Suami / Pasangan', 
+            val: (p.status_perkawinan === 'Belum Menikah' || !p.status_perkawinan) ? (p.nama_ayah_kandung || p.nama_suami) : (p.nama_suami || p.nama_ayah_kandung)
+        },
         { label: 'Status Rujukan', val: (p.ada_rujukan === 'Ya' ? 'Ada Rujukan' : 'Tidak Ada') + (p.asal_rujukan ? ' · ' + p.asal_rujukan : '') },
         { label: 'Total Pendaftaran Kunjungan', val: (p.jumlah_kunjungan || 0) + ' kali' },
         { label: 'Kunjungan Terakhir', val: p.kunjungan_terakhir || 'Belum pernah' }
@@ -1056,6 +1103,9 @@ function bukaModalEditPasien(p) {
     document.getElementById('editPasienStatusKawin').value = p.status_perkawinan || '';
     document.getElementById('editPasienPendidikan').value = p.pendidikan_terakhir || '';
     document.getElementById('editPasienAgama').value = p.agama || '';
+    document.getElementById('editPasienNamaIbu').value = p.nama_ibu_kandung || '';
+    if (document.getElementById('editPasienNamaAyah')) document.getElementById('editPasienNamaAyah').value = p.nama_ayah_kandung || '';
+    document.getElementById('editPasienNamaSuami').value = p.nama_suami || '';
     
     const rujukan = p.ada_rujukan || 'Tidak';
     document.getElementById('editPasienAdaRujukan').value = rujukan;

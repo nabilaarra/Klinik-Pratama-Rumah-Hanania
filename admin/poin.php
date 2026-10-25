@@ -8,10 +8,19 @@ $messageType = 'success';
 // Default Katalog Reward Hanania jika belum diubah
 $defaultKatalogReward = [
     [
+        'id' => 'VCH-TUMBLER',
+        'nama' => 'Merchandise Tumbler & Kit Hand Sanitizer Hanania',
+        'kategori' => 'Souvenir Sehat',
+        'poin' => 5,
+        'deskripsi' => 'Tumbler ramah lingkungan edisi Rumah Hanania dilengkapi dengan botol hand sanitizer saku yang praktis.',
+        'icon' => '🎁',
+        'badge' => 'Hadiah Langsung'
+    ],
+    [
         'id' => 'VCH-GIGI-25',
         'nama' => 'Voucher Diskon Tindakan Poli Gigi Rp 25.000',
         'kategori' => 'Poli Gigi & Mulut',
-        'poin' => 100,
+        'poin' => 10,
         'deskripsi' => 'Berlaku untuk pembersihan karang gigi (scaling), penambalan, atau pencabutan gigi ringan di Klinik Rumah Hanania.',
         'icon' => '🦷',
         'badge' => 'Paling Populer'
@@ -20,7 +29,7 @@ $defaultKatalogReward = [
         'id' => 'VCH-KONSUL-GRATIS',
         'nama' => 'Gratis Konsultasi Lanjutan Dokter Umum',
         'kategori' => 'Poli Umum',
-        'poin' => 150,
+        'poin' => 15,
         'deskripsi' => 'Bebas biaya jasa pemeriksaan dan konsultasi dokter umum untuk satu kali kunjungan lanjutan kontrol kesehatan.',
         'icon' => '🩺',
         'badge' => 'Spesial'
@@ -29,7 +38,7 @@ $defaultKatalogReward = [
         'id' => 'VCH-VIT-HANANIA',
         'nama' => 'Paket Multivitamin Sehat Hanania (30 Tablet)',
         'kategori' => 'Farmasi & Apotek',
-        'poin' => 200,
+        'poin' => 20,
         'deskripsi' => 'Paket multivitamin lengkap untuk menjaga imunitas dan kebugaran tubuh, dapat diambil langsung di farmasi klinik.',
         'icon' => '💊',
         'badge' => 'Kesehatan'
@@ -38,19 +47,10 @@ $defaultKatalogReward = [
         'id' => 'VCH-USG-20',
         'nama' => 'Diskon 20% Pemeriksaan USG Kebidanan',
         'kategori' => 'Poli KIA & Kebidanan',
-        'poin' => 250,
+        'poin' => 25,
         'deskripsi' => 'Potongan 20% biaya layanan USG 2D/3D untuk ibu hamil saat jadwal pemeriksaan dengan dokter spesialis / bidan.',
         'icon' => '👶',
         'badge' => 'Bunda & Anak'
-    ],
-    [
-        'id' => 'VCH-TUMBLER',
-        'nama' => 'Merchandise Tumbler & Kit Hand Sanitizer Hanania',
-        'kategori' => 'Souvenir Sehat',
-        'poin' => 80,
-        'deskripsi' => 'Tumbler ramah lingkungan edisi Rumah Hanania dilengkapi dengan botol hand sanitizer saku yang praktis.',
-        'icon' => '🎁',
-        'badge' => 'Hadiah Langsung'
     ]
 ];
 
@@ -239,11 +239,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             setPoinKontenAdmin($db, 'poin_kunjungan_bersalin', (string)$poinBersalin);
 
             $message = 'Pengaturan tarif pendapatan poin kunjungan pasien berhasil diperbarui!';
+        } elseif ($action === 'tambah_aturan_poin') {
+            $namaAturan = trim($_POST['nama_aturan'] ?? '');
+            $poinAturan = max(1, (int)($_POST['poin_aturan'] ?? 1));
+            $ketAturan  = trim($_POST['keterangan_aturan'] ?? '');
+            $katSlug    = trim($_POST['kategori_aturan'] ?? '');
+
+            if ($namaAturan === '') {
+                throw new Exception('Nama aturan / kategori pendapatan poin wajib diisi.');
+            }
+            if ($katSlug === '') {
+                $katSlug = 'custom_' . strtolower(preg_replace('/[^a-zA-Z0-9]+/', '_', $namaAturan));
+            }
+            $ruleId = 'rule_' . substr(md5($namaAturan . microtime(true)), 0, 8);
+
+            $rules = getCustomPoinRules($db);
+            $rules[] = [
+                'id' => $ruleId,
+                'nama' => $namaAturan,
+                'poin' => $poinAturan,
+                'kategori' => $katSlug,
+                'keterangan' => $ketAturan
+            ];
+            saveCustomPoinRules($db, $rules);
+            $message = "Aturan pendapatan poin baru \"{$namaAturan}\" ({$poinAturan} Point) berhasil ditambahkan!";
+        } elseif ($action === 'hapus_aturan_poin') {
+            $ruleId = trim($_POST['rule_id'] ?? '');
+            if ($ruleId === '') {
+                throw new Exception('ID aturan poin tidak valid.');
+            }
+            $rules = getCustomPoinRules($db);
+            $filtered = array_filter($rules, fn($r) => ($r['id'] ?? '') !== $ruleId);
+            saveCustomPoinRules($db, $filtered);
+            $message = 'Aturan pendapatan poin berhasil dihapus.';
         } elseif ($action === 'ubah_poin_pasien') {
             // Ubah saldo / pendapatan poin pengguna tertentu secara manual
             $idPasienTarget = (int)($_POST['id_pasien'] ?? 0);
             $mode = trim($_POST['mode_ubah'] ?? 'set');
             $jml = max(0, (int)($_POST['jumlah_poin'] ?? 0));
+            $kategoriAlasan = trim($_POST['kategori_alasan'] ?? 'manual');
             $catatan = trim($_POST['catatan_admin'] ?? 'Penyesuaian oleh Admin');
 
             if ($idPasienTarget <= 0) {
@@ -258,10 +292,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $saldoLama = (int)$pasTarget['reward_poin'];
             if ($mode === 'tambah') {
                 $saldoBaru = $saldoLama + $jml;
+                $jenisRiwayat = 'tambah';
             } elseif ($mode === 'kurang') {
                 $saldoBaru = max(0, $saldoLama - $jml);
+                $jenisRiwayat = 'kurang';
             } else {
                 $saldoBaru = $jml;
+                $jenisRiwayat = 'set';
             }
 
             $stmtUpP = $db->prepare("UPDATE pasien SET reward_poin = ? WHERE id_pasien = ?");
@@ -269,6 +306,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmtUpP->bind_param('ii', $saldoBaru, $idPasienTarget);
                 $stmtUpP->execute();
                 $stmtUpP->close();
+
+                // Catat ke tabel riwayat_poin
+                $adminName = $_SESSION['nama_lengkap'] ?? $_SESSION['username'] ?? 'Admin Klinik';
+                $stmtR = $db->prepare("INSERT INTO riwayat_poin (id_pasien, jenis, jumlah_poin, saldo_akhir, kategori, keterangan, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())");
+                if ($stmtR) {
+                    $stmtR->bind_param('isissss', $idPasienTarget, $jenisRiwayat, $jml, $saldoBaru, $kategoriAlasan, $catatan, $adminName);
+                    $stmtR->execute();
+                    $stmtR->close();
+                }
+
                 $message = "Poin pasien " . htmlspecialchars($pasTarget['nama_lengkap']) . " berhasil diubah dari {$saldoLama} menjadi {$saldoBaru} poin.";
             } else {
                 throw new Exception('Gagal memperbarui saldo poin pasien: ' . $db->error);
@@ -285,6 +332,7 @@ $poinSettingBpjs     = (int)getPoinSetting($db, 'poin_kunjungan_bpjs', 1);
 $poinSettingBiasa    = (int)getPoinSetting($db, 'poin_kunjungan_biasa', 2);
 $poinSettingUsg      = (int)getPoinSetting($db, 'poin_kunjungan_usg', 3);
 $poinSettingBersalin = (int)getPoinSetting($db, 'poin_kunjungan_bersalin', 10);
+$customPoinRules     = getCustomPoinRules($db);
 
 // Data Konten Saat Ini
 $kontenHeroJudul = getPoinKontenAdmin($db, 'poin_hero_judul', 'Hanania Point & Reward');
@@ -333,6 +381,14 @@ $allPasien = [];
 $qAllP = $db->query("SELECT id_pasien, nama_lengkap, nik, reward_poin FROM pasien ORDER BY nama_lengkap ASC LIMIT 250");
 if ($qAllP) while ($rAll = $qAllP->fetch_assoc()) $allPasien[] = $rAll;
 
+// Riwayat Penyesuaian Saldo Poin Pasien
+$listRiwayatPoin = [];
+$qRiwayat = $db->query("SELECT r.*, p.nama_lengkap, p.nik 
+                        FROM riwayat_poin r 
+                        LEFT JOIN pasien p ON r.id_pasien = p.id_pasien 
+                        ORDER BY r.id_riwayat DESC LIMIT 50");
+if ($qRiwayat) while ($r = $qRiwayat->fetch_assoc()) $listRiwayatPoin[] = $r;
+
 adminPageStart('Kelola Poin, Konten & Voucher', 'poin');
 ?>
 
@@ -358,8 +414,10 @@ adminPageStart('Kelola Poin, Konten & Voucher', 'poin');
     <!-- QUICK SECTION SHORTCUTS -->
     <div style="display:flex;gap:8px;margin-bottom:24px;flex-wrap:wrap;">
         <a href="#sec-voucher" class="btn btn-sm btn-primary">⭐ Persetujuan Voucher</a>
+        <a href="#sec-google-review" class="btn btn-sm btn-light">⭐ Google Review (5.0)</a>
         <a href="#sec-setting-poin" class="btn btn-sm btn-light">⚙️ Pendapatan Poin Kunjungan</a>
         <a href="#sec-pasien-poin" class="btn btn-sm btn-light">👥 Saldo Poin Pengguna</a>
+        <a href="#sec-riwayat-poin" class="btn btn-sm btn-light">📋 Riwayat Poin</a>
         <a href="#sec-katalog" class="btn btn-sm btn-light">🎁 Katalog Voucher Hadiah</a>
         <a href="#sec-konten" class="btn btn-sm btn-light">📝 Kelola Konten &amp; Teks Poin</a>
     </div>
@@ -370,6 +428,42 @@ adminPageStart('Kelola Poin, Konten & Voucher', 'poin');
             <div><?= adminEsc($message) ?></div>
         </div>
     <?php endif; ?>
+
+    <!-- GOOGLE REVIEW OFFICIAL CARD -->
+    <section class="admin-card" id="sec-google-review" style="margin-bottom:26px;background:linear-gradient(135deg, #FFFDF8 0%, #FFF9EC 100%);border:1.5px solid #FDE68A;">
+        <div class="admin-card-head" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;">
+            <div style="display:flex;align-items:center;gap:16px;">
+                <div style="width:52px;height:52px;border-radius:14px;background:#FEF3C7;border:1.5px solid #FCD34D;display:flex;align-items:center;justify-content:center;font-size:26px;flex-shrink:0;box-shadow:0 4px 12px rgba(245,158,11,0.15);">
+                    ⭐
+                </div>
+                <div>
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                        <span style="font-size:16px;font-weight:900;color:#2B1B48;">Google Review Klinik Pratama Rumah Hanania</span>
+                        <span style="background:#16A34A;color:#FFFFFF;font-size:11.5px;font-weight:800;padding:3px 10px;border-radius:999px;">
+                            5.0 ⭐ (50+ Ulasan Puas)
+                        </span>
+                        <span style="background:#8E44AD;color:#FFFFFF;font-size:11.5px;font-weight:800;padding:3px 10px;border-radius:999px;">
+                            Terintegrasi Maps
+                        </span>
+                    </div>
+                    <div style="font-size:12.5px;color:#6D5B7B;margin-top:4px;">
+                        Klinik Pratama Rawat Inap &amp; Bersalin 24 Jam • Terhubung dengan URL Google Maps: 
+                        <a href="https://maps.app.goo.gl/524k7ABe1fckKgpt6" target="_blank" rel="noopener" style="color:#B45309;font-weight:700;text-decoration:underline;">
+                            maps.app.goo.gl/524k7ABe1fckKgpt6
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                <button type="button" class="btn btn-sm" onclick="bukaUbahPoinGoogleReview()" style="background:#F59E0B;color:#FFFFFF;border:none;box-shadow:0 4px 12px rgba(245,158,11,0.3);">
+                    <span>⭐</span> Beri Bonus Poin Google Review
+                </button>
+                <a href="https://maps.app.goo.gl/524k7ABe1fckKgpt6" target="_blank" rel="noopener" class="btn btn-sm btn-light">
+                    📍 Buka Google Maps &rarr;
+                </a>
+            </div>
+        </div>
+    </section>
 
     <!-- CARD 1 (PALING ATAS): ACC / TOLAK PENGAJUAN VOUCHER -->
     <section class="admin-card" id="sec-voucher" style="margin-bottom:26px;">
@@ -569,6 +663,92 @@ adminPageStart('Kelola Poin, Konten & Voucher', 'poin');
                 </button>
             </div>
         </form>
+
+        <!-- SUBSECTION: ATURAN & KATEGORI PENDAPATAN POIN TAMBAHAN LAINNYA -->
+        <div style="margin-top:28px;padding-top:22px;border-top:1.5px dashed var(--hanania-border);">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+                <div>
+                    <strong style="color:var(--hanania-primary);font-size:14.5px;">➕ Aturan &amp; Kategori Pendapatan Poin Lainnya</strong>
+                    <p style="font-size:12px;color:var(--hanania-muted);margin-top:2px;">
+                        Admin dapat menambahkan kategori pendapatan poin baru lainnya (misalnya Imunisasi, Cek Lab, Konsultasi Khusus, Promo, dll).
+                    </p>
+                </div>
+                <button type="button" class="btn btn-sm btn-light" onclick="toggleFormTambahAturanPoin()">
+                    <span>➕</span> Tambah Poin Lainnya
+                </button>
+            </div>
+
+            <!-- FORM TAMBAH ATURAN POIN (TOGGLEABLE) -->
+            <div id="boxFormTambahAturanPoin" style="display:none;background:#FAF8FD;border:1.5px solid #E5D5FA;border-radius:12px;padding:16px;margin-bottom:16px;">
+                <form method="POST" action="poin.php#sec-setting-poin" class="form-grid">
+                    <input type="hidden" name="action" value="tambah_aturan_poin">
+                    <div class="form-field">
+                        <label>Nama Layanan / Aktivitas Poin *</label>
+                        <input type="text" name="nama_aturan" placeholder="Contoh: Imunisasi Bayi, Cek Laboratorium, Konsul Gigi" class="filter-input" required>
+                    </div>
+                    <div class="form-field">
+                        <label>Jumlah Poin yang Didapat *</label>
+                        <input type="number" name="poin_aturan" min="1" max="999" value="2" class="filter-input" required>
+                    </div>
+                    <div class="form-field full">
+                        <label>Keterangan / Deskripsi Singkat</label>
+                        <input type="text" name="keterangan_aturan" placeholder="Contoh: Pelayanan imunisasi rutin bayi dan balita" class="filter-input">
+                    </div>
+                    <div class="form-field full" style="display:flex;gap:8px;justify-content:flex-end;">
+                        <button type="submit" class="btn btn-sm">💾 Simpan Kategori Poin Baru</button>
+                        <button type="button" class="btn btn-sm btn-light" onclick="toggleFormTambahAturanPoin()">Batal</button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- TABEL DAFTAR ATURAN POIN LAINNYA -->
+            <div style="overflow-x:auto;">
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>Nama Layanan / Kategori</th>
+                            <th style="width:130px;">Nilai Poin</th>
+                            <th>Keterangan</th>
+                            <th style="width:100px;text-align:center;">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (empty($customPoinRules)): ?>
+                            <tr>
+                                <td colspan="4" style="text-align:center;padding:16px;color:var(--hanania-muted);font-size:12px;">
+                                    Belum ada kategori poin tambahan. Klik tombol <strong>+ Tambah Poin Lainnya</strong> di atas untuk membuat kategori baru.
+                                </td>
+                            </tr>
+                        <?php else: ?>
+                            <?php foreach ($customPoinRules as $cr): ?>
+                                <tr>
+                                    <td>
+                                        <strong style="color:var(--hanania-primary);font-size:13px;">✨ <?= adminEsc($cr['nama']) ?></strong>
+                                    </td>
+                                    <td>
+                                        <span style="font-weight:800;color:#16A34A;background:#ECFDF5;padding:3px 9px;border-radius:6px;border:1px solid #BBF7D0;font-size:12px;">
+                                            ⭐ <?= (int)$cr['poin'] ?> Point
+                                        </span>
+                                    </td>
+                                    <td style="font-size:12px;color:var(--hanania-muted);">
+                                        <?= adminEsc($cr['keterangan'] ?: '-') ?>
+                                    </td>
+                                    <td style="text-align:center;">
+                                        <form method="POST" action="poin.php#sec-setting-poin" onsubmit="return confirm('Hapus aturan pendapatan poin <?= addslashes($cr['nama']) ?>?');" style="display:inline;">
+                                            <input type="hidden" name="action" value="hapus_aturan_poin">
+                                            <input type="hidden" name="rule_id" value="<?= adminEsc($cr['id'] ?? '') ?>">
+                                            <button type="submit" class="btn btn-sm btn-light" style="color:#DC2626;padding:4px 8px;font-size:11px;">
+                                                🗑️ Hapus
+                                            </button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </section>
 
     <!-- CARD 3: UBAH SALDO & PENDAPATAN POIN PENGGUNA (PASIEN) -->
@@ -609,6 +789,36 @@ adminPageStart('Kelola Poin, Konten & Voucher', 'poin');
                     </select>
                 </div>
 
+                <div class="form-field full">
+                    <label style="display:flex;align-items:center;justify-content:space-between;">
+                        <span><strong>Poin Ditambahkan Buat Apa?</strong> (Pilih Alasan &amp; Range Poin) *</span>
+                        <span style="font-size:11px;color:var(--hanania-primary);font-weight:700;">⭐ Range Poin Sesuai Kategori</span>
+                    </label>
+                    <select name="kategori_alasan" id="selectKategoriAlasan" class="filter-input" onchange="onAlasanPoinChange(this)">
+                        <optgroup label="Standar Poin Kunjungan">
+                            <option value="kunjungan_bpjs" data-mode="tambah" data-poin="<?= $poinSettingBpjs ?>" data-ket="Poin Kunjungan Pelayanan Pasien BPJS (+<?= $poinSettingBpjs ?> Point)">🏥 Kunjungan BPJS = <?= $poinSettingBpjs ?> Point</option>
+                            <option value="kunjungan_biasa" data-mode="tambah" data-poin="<?= $poinSettingBiasa ?>" data-ket="Poin Kunjungan Pelayanan Pasien Biasa Tanpa USG (+<?= $poinSettingBiasa ?> Point)">🩺 Kunjungan Biasa (Tanpa USG) = <?= $poinSettingBiasa ?> Point</option>
+                            <option value="kunjungan_usg" data-mode="tambah" data-poin="<?= $poinSettingUsg ?>" data-ket="Poin Kunjungan Pelayanan Pemeriksaan USG (+<?= $poinSettingUsg ?> Point)">👶 Kunjungan USG = <?= $poinSettingUsg ?> Point</option>
+                            <option value="kunjungan_bersalin" data-mode="tambah" data-poin="<?= $poinSettingBersalin ?>" data-ket="Poin Pelayanan Persalinan 24 Jam / Melahirkan (+<?= $poinSettingBersalin ?> Point)">🤱 Kunjungan Bersalin = <?= $poinSettingBersalin ?> Point</option>
+                        </optgroup>
+                        <?php if (!empty($customPoinRules)): ?>
+                            <optgroup label="Kategori Poin Tambahan Lainnya">
+                                <?php foreach ($customPoinRules as $cr): ?>
+                                    <option value="<?= adminEsc($cr['kategori'] ?? $cr['id']) ?>" data-mode="tambah" data-poin="<?= (int)$cr['poin'] ?>" data-ket="<?= adminEsc($cr['keterangan'] ?: $cr['nama']) ?>">
+                                        ✨ <?= adminEsc($cr['nama']) ?> = <?= (int)$cr['poin'] ?> Point
+                                    </option>
+                                <?php endforeach; ?>
+                            </optgroup>
+                        <?php endif; ?>
+                        <optgroup label="Kustom / Bebas">
+                            <option value="manual" data-mode="tambah" data-poin="" data-ket="Penyesuaian Saldo Poin Pasien oleh Admin">➕ Kelola / Tambah Poin Kustom Lainnya</option>
+                        </optgroup>
+                    </select>
+                    <span style="font-size:11.5px;color:var(--hanania-muted);margin-top:4px;display:block;">
+                        💡 Pilihan di atas otomatis mengisi jumlah poin dan catatan rekomendasi (<strong>BPJS = <?= $poinSettingBpjs ?>, Biasa = <?= $poinSettingBiasa ?>, USG = <?= $poinSettingUsg ?>, Bersalin = <?= $poinSettingBersalin ?></strong>). Admin tetap dapat memilih <em>Tambah Poin Kustom Lainnya</em> untuk memasukkan nominal poin dan alasan apa saja.
+                    </span>
+                </div>
+
                 <div class="form-field">
                     <label>Jenis Penyesuaian *</label>
                     <select name="mode_ubah" id="modeUbahPoin" class="filter-input" required onchange="updateModeLabel()">
@@ -620,13 +830,13 @@ adminPageStart('Kelola Poin, Konten & Voucher', 'poin');
 
                 <div class="form-field">
                     <label id="labelJumlahPoin">Jumlah Poin yang Ditambahkan *</label>
-                    <input type="number" name="jumlah_poin" id="inputJumlahPoin" min="0" max="999999" placeholder="Contoh: 10" class="filter-input" required>
+                    <input type="number" name="jumlah_poin" id="inputJumlahPoin" min="0" max="999999" placeholder="Contoh: 25" class="filter-input" required>
                     <span id="hintSaldoInfo" style="font-size:11.5px;color:var(--hanania-muted);margin-top:4px;display:block;"></span>
                 </div>
 
                 <div class="form-field full">
                     <label>Catatan / Keterangan Penyesuaian (Opsional)</label>
-                    <input type="text" name="catatan_admin" placeholder="Contoh: Penyesuaian poin kunjungan langsung / bonus promo" class="filter-input">
+                    <input type="text" name="catatan_admin" id="inputCatatanAdmin" placeholder="Contoh: Penyesuaian poin ulasan Google / bonus promo" class="filter-input">
                 </div>
 
                 <div class="form-field full" style="display:flex;gap:8px;justify-content:flex-end;">
@@ -691,6 +901,115 @@ adminPageStart('Kelola Poin, Konten & Voucher', 'poin');
                                     <button type="button" class="btn btn-sm btn-light" onclick="bukaUbahPoin(<?= (int)$p['id_pasien'] ?>, '<?= addslashes($p['nama_lengkap']) ?>', <?= (int)$p['reward_poin'] ?>)">
                                         ✏️ Ubah Poin
                                     </button>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- CARD: RIWAYAT & AUDIT LOG PENYESUAIAN SALDO POIN PASIEN -->
+    <section class="admin-card" id="sec-riwayat-poin" style="margin-bottom:26px;">
+        <div class="admin-card-head" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+            <div>
+                <div class="admin-card-title">
+                    <span>📋 Riwayat &amp; Log Penyesuaian Saldo Poin Pasien</span>
+                </div>
+                <div class="admin-card-subtitle">
+                    Catatan otomatis setiap perubahan poin pasien (alasan "jika apa", bonus ulasan Google review, reward bersalin, klaim voucher, dll).
+                </div>
+            </div>
+            <span style="font-size:12px;color:var(--hanania-muted);background:#F3EBF9;padding:4px 12px;border-radius:99px;font-weight:700;">
+                Total <?= count($listRiwayatPoin) ?> Catatan Riwayat
+            </span>
+        </div>
+
+        <div style="overflow-x:auto;">
+            <table class="admin-table">
+                <thead>
+                    <tr>
+                        <th style="width:50px;">ID</th>
+                        <th>Waktu</th>
+                        <th>Pasien</th>
+                        <th>Jenis &amp; Perubahan</th>
+                        <th>Saldo Akhir</th>
+                        <th>Alasan / "Jika Apa"</th>
+                        <th>Keterangan</th>
+                        <th>Diberikan Oleh</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php if (empty($listRiwayatPoin)): ?>
+                        <tr>
+                            <td colspan="8" style="text-align:center;padding:26px;color:var(--hanania-muted);">
+                                Belum ada riwayat penyesuaian saldo poin.
+                            </td>
+                        </tr>
+                    <?php else: ?>
+                        <?php foreach ($listRiwayatPoin as $rp): ?>
+                            <tr>
+                                <td><strong>#<?= $rp['id_riwayat'] ?></strong></td>
+                                <td style="font-size:12px;color:var(--hanania-muted);white-space:nowrap;">
+                                    <?= date('d M Y, H:i', strtotime($rp['created_at'])) ?>
+                                </td>
+                                <td>
+                                    <div style="font-weight:800;color:var(--hanania-primary);font-size:13.5px;">
+                                        <?= adminEsc($rp['nama_lengkap'] ?: 'Pasien #' . $rp['id_pasien']) ?>
+                                    </div>
+                                    <div style="font-size:11.5px;color:var(--hanania-muted);">
+                                        NIK: <?= adminEsc($rp['nik'] ?: '-') ?>
+                                    </div>
+                                </td>
+                                <td>
+                                    <?php if ($rp['jenis'] === 'tambah'): ?>
+                                        <span style="font-weight:800;color:#16A34A;background:#ECFDF5;padding:4px 10px;border-radius:8px;border:1px solid #BBF7D0;display:inline-block;font-size:13px;">
+                                            ➕ +<?= number_format((int)$rp['jumlah_poin']) ?> Poin
+                                        </span>
+                                    <?php elseif ($rp['jenis'] === 'kurang'): ?>
+                                        <span style="font-weight:800;color:#DC2626;background:#FEF2F2;padding:4px 10px;border-radius:8px;border:1px solid #FECACA;display:inline-block;font-size:13px;">
+                                            ➖ -<?= number_format((int)$rp['jumlah_poin']) ?> Poin
+                                        </span>
+                                    <?php else: ?>
+                                        <span style="font-weight:800;color:#6C34A3;background:#F3E8FF;padding:4px 10px;border-radius:8px;border:1px solid #E9D5FF;display:inline-block;font-size:13px;">
+                                            🎯 Set ke <?= number_format((int)$rp['jumlah_poin']) ?> Poin
+                                        </span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <strong style="color:var(--hanania-primary-dark);font-size:13.5px;">
+                                        ⭐ <?= number_format((int)$rp['saldo_akhir']) ?> Pts
+                                    </strong>
+                                </td>
+                                <td>
+                                    <?php
+                                    $kat = $rp['kategori'] ?? 'manual';
+                                    $katBadge = [
+                                        'kunjungan_bpjs' => ['🏥 Kunjungan BPJS', '#E0F2FE', '#0369A1', '#BAE6FD'],
+                                        'kunjungan_biasa' => ['🩺 Kunjungan Biasa', '#EBF9F1', '#15803D', '#BBF7D0'],
+                                        'kunjungan_usg' => ['👶 Kunjungan USG', '#EDE9FE', '#6D28D9', '#DDD6FE'],
+                                        'kunjungan_bersalin' => ['🤱 Kunjungan Bersalin', '#FCE7F3', '#BE185D', '#FBCFE8'],
+                                        'review_google' => ['⭐ Review Google', '#FEF3C7', '#B45309', '#FCD34D'],
+                                        'kunjungan_rutin' => ['🏥 Kunjungan Rutin', '#EBF9F1', '#15803D', '#BBF7D0'],
+                                        'ulang_tahun' => ['🎂 Ulang Tahun', '#FCE7F3', '#BE185D', '#FBCFE8'],
+                                        'paket_bersalin' => ['🤰 Paket Bersalin 24 Jam', '#EDE9FE', '#6D28D9', '#DDD6FE'],
+                                        'usg_anc' => ['👶 USG & ANC', '#E0F2FE', '#0369A1', '#BAE6FD'],
+                                        'referral' => ['🤝 Referral Pasien', '#FEF9C3', '#A16207', '#FEF08A'],
+                                        'kompensasi' => ['🩹 Kompensasi', '#FEE2E2', '#B91C1C', '#FECACA'],
+                                        'manual' => ['➕ Kelola Poin Kustom', '#F3F4F6', '#374151', '#E5E7EB'],
+                                    ];
+                                    $b = $katBadge[$kat] ?? ['✏️ ' . ucfirst($kat), '#F3F4F6', '#374151', '#E5E7EB'];
+                                    ?>
+                                    <span style="background:<?= $b[1] ?>;color:<?= $b[2] ?>;border:1px solid <?= $b[3] ?>;padding:3px 9px;border-radius:8px;font-size:11.5px;font-weight:800;display:inline-block;">
+                                        <?= $b[0] ?>
+                                    </span>
+                                </td>
+                                <td style="font-size:12.5px;color:var(--hanania-text);max-width:240px;">
+                                    <?= adminEsc($rp['keterangan'] ?: '-') ?>
+                                </td>
+                                <td style="font-size:12px;color:var(--hanania-muted);white-space:nowrap;">
+                                    👤 <?= adminEsc($rp['created_by'] ?: 'Admin') ?>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
@@ -931,6 +1250,16 @@ function editRewardItem(data) {
     box.scrollIntoView({ behavior: 'smooth' });
 }
 
+function toggleFormTambahAturanPoin() {
+    const box = document.getElementById('boxFormTambahAturanPoin');
+    if (!box) return;
+    const isHidden = box.style.display === 'none';
+    box.style.display = isHidden ? 'block' : 'none';
+    if (isHidden) {
+        box.scrollIntoView({ behavior: 'smooth' });
+    }
+}
+
 function toggleFormUbahPoin() {
     const box = document.getElementById('boxFormUbahPoin');
     const isHidden = box.style.display === 'none';
@@ -940,14 +1269,51 @@ function toggleFormUbahPoin() {
     }
 }
 
-function bukaUbahPoin(idPasien, namaPasien, saldoSaatIni) {
+function onAlasanPoinChange(sel) {
+    const opt = sel.options[sel.selectedIndex];
+    if (!opt) return;
+    const mode = opt.dataset.mode || 'tambah';
+    const poin = opt.dataset.poin || '';
+    const ket = opt.dataset.ket || '';
+
+    const modeSel = document.getElementById('modeUbahPoin');
+    if (modeSel) {
+        modeSel.value = mode;
+        updateModeLabel();
+    }
+    if (poin !== '') {
+        document.getElementById('inputJumlahPoin').value = poin;
+    }
+    if (ket !== '') {
+        const inputKet = document.getElementById('inputCatatanAdmin');
+        if (inputKet) inputKet.value = ket;
+    }
+}
+
+function bukaUbahPoinGoogleReview() {
+    const box = document.getElementById('boxFormUbahPoin');
+    box.style.display = 'block';
+    const alasanSel = document.getElementById('selectKategoriAlasan');
+    if (alasanSel) {
+        alasanSel.value = 'review_google';
+        onAlasanPoinChange(alasanSel);
+    }
+    box.scrollIntoView({ behavior: 'smooth' });
+}
+
+function bukaUbahPoin(idPasien, namaPasien, saldoSaatIni, defaultKategori = 'manual') {
     const box = document.getElementById('boxFormUbahPoin');
     box.style.display = 'block';
     const sel = document.getElementById('selectPasienUbah');
     sel.value = idPasien;
     document.getElementById('titleFormUbahPoin').textContent = '✏️ Ubah Poin: ' + namaPasien + ' (Saldo: ' + saldoSaatIni + ' Poin)';
     document.getElementById('hintSaldoInfo').textContent = 'Saldo poin saat ini: ' + saldoSaatIni + ' poin.';
-    document.getElementById('inputJumlahPoin').value = '';
+    
+    const alasanSel = document.getElementById('selectKategoriAlasan');
+    if (alasanSel) {
+        alasanSel.value = defaultKategori;
+        onAlasanPoinChange(alasanSel);
+    }
     box.scrollIntoView({ behavior: 'smooth' });
 }
 

@@ -104,6 +104,19 @@ if ($stmtUpdate) {
 
 $newPoin = (int)$pasien['reward_poin'] + 1;
 
+// Catat ke tabel riwayat_poin
+$kategoriLog = 'review_google';
+$ketLog = 'Apresiasi Ulasan Google Review Bintang 5 (5.0 ⭐)';
+$byLog = 'Sistem Google Review';
+$jenisLog = 'tambah';
+$jmlLog = 1;
+$stmtR = $db->prepare("INSERT INTO riwayat_poin (id_pasien, jenis, jumlah_poin, saldo_akhir, kategori, keterangan, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())");
+if ($stmtR) {
+    $stmtR->bind_param('isissss', $idPasien, $jenisLog, $jmlLog, $newPoin, $kategoriLog, $ketLog, $byLog);
+    $stmtR->execute();
+    $stmtR->close();
+}
+
 // Update session jika ada
 if (isset($_SESSION['user']['reward_poin'])) {
     $_SESSION['user']['reward_poin'] = $newPoin;
