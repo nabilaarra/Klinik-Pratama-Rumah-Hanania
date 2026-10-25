@@ -388,6 +388,29 @@ adminPageStart('Kelola Jadwal Praktik', 'jadwal');
                     </small>
                 </div>
 
+                <!-- OPSI LAYANAN SIAGA 24 JAM (CHECKBOX SEPERTI HARI PRAKTIK & SHORTCUT CEPAT) -->
+                <div class="form-field full" style="background:#FAF5FF;border:1.5px dashed #D8B4FE;border-radius:12px;padding:14px 18px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+                        <label style="display:inline-flex;align-items:center;gap:10px;font-weight:700;color:#6B21A8;cursor:pointer;user-select:none;margin:0;font-size:13.5px;">
+                            <input type="checkbox" id="check24Jam" onchange="toggle24JamMode(this.checked)" style="width:20px;height:20px;accent-color:#7E22CE;cursor:pointer;">
+                            <span>🌙 Jadwal Siaga 24 Jam Nonstop (00:00 – 23:59 WIB)</span>
+                        </label>
+                        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                            <span style="font-size:11.5px;color:#7E22CE;font-weight:600;">Preset Cepat:</span>
+                            <button type="button" class="btn btn-sm btn-light" onclick="setPresetJam('00:00', '23:59')" style="font-size:11px;padding:3px 10px;font-weight:700;color:#6B21A8;background:#fff;border:1px solid #D8B4FE;">⚡ 24 Jam (00-23.59)</button>
+                            <button type="button" class="btn btn-sm btn-light" onclick="setPresetJam('08:00', '12:00')" style="font-size:11px;padding:3px 10px;font-weight:600;">Pagi (08-12)</button>
+                            <button type="button" class="btn btn-sm btn-light" onclick="setPresetJam('14:00', '20:00')" style="font-size:11px;padding:3px 10px;font-weight:600;">Sore (14-20)</button>
+                            <button type="button" class="btn btn-sm btn-light" onclick="setPresetJam('08:00', '16:00')" style="font-size:11px;padding:3px 10px;font-weight:600;">Reguler (08-16)</button>
+                        </div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+                        <span id="badge24JamInfo" style="display:none;background:#7E22CE;color:#fff;font-size:11px;font-weight:800;padding:2px 8px;border-radius:6px;">✓ 24 JAM AKTIF</span>
+                        <small style="color:#6B21A8;font-size:12px;line-height:1.4;">
+                            💡 Centang opsi ini atau ketik jam <strong>00:00 – 23:59</strong> untuk mengaktifkan jadwal siaga 24 jam nonstop (otomatis juga jika memilih Poli Persalinan 24 Jam).
+                        </small>
+                    </div>
+                </div>
+
                 <!-- JAM MULAI -->
                 <div class="form-field">
                     <label>Jam Mulai Pelayanan *</label>
@@ -615,9 +638,13 @@ function onPoliChange(poliId, preselectedKey = '') {
     const badge = document.getElementById('staffPoliBadge');
     const hint = document.getElementById('staffPoliHint');
     const typeHidden = document.getElementById('jadwalType');
+    const poliSelect = document.getElementById('fieldJadwalPoli');
     if (!staffSelect) return;
 
     const numPoli = Number(poliId || 0);
+    const selectedOptionText = (poliSelect && poliSelect.selectedIndex >= 0) ? (poliSelect.options[poliSelect.selectedIndex]?.textContent || '') : '';
+    const isPersalinan = (numPoli === 5 || selectedOptionText.toLowerCase().includes('persalinan'));
+
     staffSelect.innerHTML = '';
 
     if (!numPoli) {
@@ -654,7 +681,13 @@ function onPoliChange(poliId, preselectedKey = '') {
     }
 
     // Filter dokter & bidan yang terdaftar pada poli yang dipilih
-    const filtered = allStaffList.filter(s => Number(s.id_poli) === numPoli);
+    // Khusus Persalinan 24 Jam: tampilkan seluruh bidan aktif (karena Bidan melayani kebidanan & persalinan siaga 24 jam)
+    const filtered = allStaffList.filter(s => {
+        if (isPersalinan) {
+            return s.jenis === 'Bidan' || Number(s.id_poli) === 5;
+        }
+        return Number(s.id_poli) === numPoli;
+    });
 
     if (filtered.length === 0) {
         const optEmpty = document.createElement('option');
@@ -665,6 +698,50 @@ function onPoliChange(poliId, preselectedKey = '') {
         if (hint) {
             hint.textContent = '⚠️ Belum ada dokter atau bidan yang terdaftar aktif pada poli ini.';
             hint.style.color = '#B91C1C';
+        }
+        return;
+    }
+
+    // JIKA KHUSUS PERSALINAN 24 JAM
+    if (isPersalinan) {
+        // Otomatis aktifkan mode 24 jam (00:00 - 23:59)
+        const check24 = document.getElementById('check24Jam');
+        if (check24 && !check24.checked) {
+            check24.checked = true;
+            toggle24JamMode(true, false);
+        }
+
+        const optPrompt = document.createElement('option');
+        optPrompt.value = '';
+        optPrompt.textContent = '-- Pilih Bidan Jaga (' + filtered.length + ' Bidan Tersedia) --';
+        staffSelect.appendChild(optPrompt);
+
+        filtered.forEach(s => {
+            const opt = document.createElement('option');
+            opt.value = s.key;
+            opt.textContent = s.nama + ' (Bidan Jaga 24 Jam)';
+            opt.dataset.poli = '5';
+            if (preselectedKey && s.key === preselectedKey) {
+                opt.selected = true;
+            }
+            staffSelect.appendChild(opt);
+        });
+
+        if (preselectedKey) {
+            staffSelect.value = preselectedKey;
+        }
+        if (typeHidden) typeHidden.value = 'bidan';
+
+        if (badge) {
+            badge.style.display = 'inline-block';
+            badge.textContent = '🌙 Bidan Jaga 24 Jam';
+            badge.style.background = '#FAF5FF';
+            badge.style.color = '#6B21A8';
+            badge.style.border = '1px solid #D8B4FE';
+        }
+        if (hint) {
+            hint.innerHTML = '🤱 <strong>Persalinan 24 Jam:</strong> Silakan pilih bidan yang bertugas jaga nonstop (' + filtered.length + ' bidan siaga aktif tersedia).';
+            hint.style.color = '#6B21A8';
         }
         return;
     }
@@ -686,6 +763,9 @@ function onPoliChange(poliId, preselectedKey = '') {
         if (badge) {
             badge.style.display = 'inline-block';
             badge.textContent = '✓ Otomatis Terpilih';
+            badge.style.background = '#DCFCE7';
+            badge.style.color = '#15803D';
+            badge.style.border = '1px solid #86EFAC';
         }
         if (hint) {
             hint.innerHTML = '✨ <strong>Otomatis:</strong> Karena tenaga medis pada poli ini hanya ada 1 orang, sistem langsung memilih <strong>' + single.nama + '</strong>.';
@@ -726,6 +806,53 @@ function onPoliChange(poliId, preselectedKey = '') {
     }
 }
 
+function toggle24JamMode(is24, autoSelectPoli = true) {
+    const jm = document.getElementById('fieldJamMulai');
+    const js = document.getElementById('fieldJamSelesai');
+    const badge24 = document.getElementById('badge24JamInfo');
+    const poliSel = document.getElementById('fieldJadwalPoli');
+
+    if (is24) {
+        if (jm) jm.value = '00:00';
+        if (js) js.value = '23:59';
+        if (badge24) badge24.style.display = 'inline-flex';
+
+        // Jika poli belum dipilih atau belum persalinan dan autoSelectPoli aktif, otomatis arahkan ke Persalinan 24 Jam (id 5)
+        if (autoSelectPoli && poliSel && (!poliSel.value || poliSel.value === '0')) {
+            for (let i = 0; i < poliSel.options.length; i++) {
+                if (poliSel.options[i].value === '5' || poliSel.options[i].text.toLowerCase().includes('persalinan')) {
+                    poliSel.selectedIndex = i;
+                    onPoliChange(poliSel.value);
+                    break;
+                }
+            }
+        }
+    } else {
+        if (jm && jm.value === '00:00') jm.value = '08:00';
+        if (js && js.value === '23:59') js.value = '16:00';
+        if (badge24) badge24.style.display = 'none';
+    }
+}
+
+function setPresetJam(start, end) {
+    const jm = document.getElementById('fieldJamMulai');
+    const js = document.getElementById('fieldJamSelesai');
+    if (jm) jm.value = start;
+    if (js) js.value = end;
+    checkJam24Otomatis();
+}
+
+function checkJam24Otomatis() {
+    const jm = document.getElementById('fieldJamMulai')?.value || '';
+    const js = document.getElementById('fieldJamSelesai')?.value || '';
+    const cb = document.getElementById('check24Jam');
+    const badge24 = document.getElementById('badge24JamInfo');
+
+    const is24 = (jm === '00:00' && (js === '23:59' || js === '23:59:00' || js === '24:00'));
+    if (cb) cb.checked = is24;
+    if (badge24) badge24.style.display = is24 ? 'inline-flex' : 'none';
+}
+
 function toggleFormJadwal() {
     const card = document.getElementById('cardFormJadwal');
     const form = document.getElementById('formJadwal');
@@ -739,6 +866,10 @@ function toggleFormJadwal() {
         document.getElementById('btnSubmitJadwal').textContent = 'Simpan Jadwal';
         form.reset();
         pilihSemuaHari(false);
+        const cb24 = document.getElementById('check24Jam');
+        if (cb24) cb24.checked = false;
+        const badge24 = document.getElementById('badge24JamInfo');
+        if (badge24) badge24.style.display = 'none';
         onPoliChange('');
         card.scrollIntoView({ behavior: 'smooth' });
     }
@@ -752,13 +883,6 @@ function bukaEditJadwal(j) {
     document.getElementById('jadwalId').value = j.id;
     document.getElementById('jadwalType').value = j.jenis.toLowerCase();
 
-    // Set pilihan poli dan filter staff sesuai poli tersebut
-    const staffKey = j.jenis.toLowerCase() + '-' + j.staff_id;
-    const poliSelect = document.getElementById('fieldJadwalPoli');
-    if (poliSelect) poliSelect.value = j.id_poli;
-
-    onPoliChange(j.id_poli, staffKey);
-
     // Set pilihan hari (uncheck semua, lalu centang hari aktif)
     pilihSemuaHari(false);
     if (j.hari) {
@@ -770,8 +894,19 @@ function bukaEditJadwal(j) {
     document.getElementById('lblHariPraktik').innerHTML = '🗓️ Hari Praktik * (Hari aktif: <strong>' + (j.hari || '') + '</strong> — Centang untuk ganti/tambah hari)';
     document.getElementById('hintHariPraktik').innerHTML = '💡 Anda dapat mengganti hari praktik dengan mencentang hari lain.';
 
-    document.getElementById('fieldJamMulai').value = j.jam_mulai.substring(0, 5);
-    document.getElementById('fieldJamSelesai').value = j.jam_selesai.substring(0, 5);
+    const startVal = j.jam_mulai.substring(0, 5);
+    const endVal = j.jam_selesai.substring(0, 5);
+    document.getElementById('fieldJamMulai').value = startVal;
+    document.getElementById('fieldJamSelesai').value = endVal;
+
+    // Set pilihan poli dan filter staff sesuai poli tersebut
+    const staffKey = j.jenis.toLowerCase() + '-' + j.staff_id;
+    const poliSelect = document.getElementById('fieldJadwalPoli');
+    if (poliSelect) poliSelect.value = j.id_poli;
+
+    onPoliChange(j.id_poli, staffKey);
+
+    checkJam24Otomatis();
     
     // Status
     let st = j.status || 'tersedia';
@@ -818,7 +953,8 @@ document.getElementById('fieldStaff').addEventListener('change', function() {
 
     if (poliId && Number(poliId) > 0) {
         const poliSelect = document.getElementById('fieldJadwalPoli');
-        if (poliSelect && poliSelect.value !== poliId) {
+        // Hanya set poli jika poli belum dipilih sebelumnya
+        if (poliSelect && (!poliSelect.value || poliSelect.value === '0')) {
             poliSelect.value = poliId;
         }
     }
@@ -839,8 +975,16 @@ document.addEventListener('DOMContentLoaded', function() {
             bukaEditJadwalDariBtn(this);
         });
     });
-    // Inisialisasi dropdown staff
+
+    ['change', 'input'].forEach(function(evt) {
+        document.getElementById('fieldJamMulai')?.addEventListener(evt, checkJam24Otomatis);
+        document.getElementById('fieldJamSelesai')?.addEventListener(evt, checkJam24Otomatis);
+    });
+
+    // Inisialisasi dropdown staff & cek 24 jam
     onPoliChange('');
+    checkJam24Otomatis();
 });
 </script>
 <?php adminPageEnd(); ?>
+

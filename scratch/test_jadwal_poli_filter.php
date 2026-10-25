@@ -73,4 +73,25 @@ if (count($poliSpogStaff) === 1) {
     exit(1);
 }
 
+// 5. Test Persalinan 24 Jam (id_poli = 5)
+$numPoli = 5;
+$isPersalinan = ($numPoli === 5);
+$persalinanStaff = array_values(array_filter($allStaff, function($s) use ($isPersalinan, $numPoli) {
+    if ($isPersalinan) {
+        return $s['jenis'] === 'Bidan' || $s['id_poli'] === 5;
+    }
+    return $s['id_poli'] === $numPoli;
+}));
+echo "Persalinan 24 Jam (id_poli 5) Total Staff: " . count($persalinanStaff) . "\n";
+if (count($persalinanStaff) >= 7 && $persalinanStaff[0]['jenis'] === 'Bidan') {
+    echo "✓ BENAR: Persalinan 24 Jam memuat seluruh Bidan aktif (total: " . count($persalinanStaff) . " bidan siaga).\n";
+    foreach ($persalinanStaff as $b) {
+        echo "   - " . $b['nama'] . "\n";
+    }
+} else {
+    echo "✕ GAGAL pada Persalinan 24 Jam!\n";
+    exit(1);
+}
+
 echo "\nSEMUA TEST JADWAL POLI & AUTO-SELECT BERHASIL 100%! ✅\n";
+

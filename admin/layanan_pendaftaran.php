@@ -4,7 +4,7 @@ require_once __DIR__ . '/_guard.php';
 $message = '';
 $messageType = 'success';
 $tab = trim($_GET['tab'] ?? 'layanan');
-if (!in_array($tab, ['layanan', 'fields'], true)) {
+if (!in_array($tab, ['layanan', 'fields', 'poli'], true)) {
     $tab = 'layanan';
 }
 
@@ -485,6 +485,11 @@ adminPageStart('Pengaturan Pendaftaran Pasien', 'layanan_pendaftaran');
             <span>Data yang Diminta dari Pasien</span>
             <span style="font-size:11.5px;font-weight:800;padding:2px 8px;border-radius:999px;<?= $tab === 'fields' ? 'background:rgba(255,255,255,.22);color:#fff;' : 'background:#E8DFF2;color:var(--hanania-primary);' ?>"><?= count($dataFields) ?></span>
         </a>
+        <a href="layanan_pendaftaran.php?tab=poli" style="padding:10px 20px;border-radius:10px;font-weight:700;font-size:13.5px;text-decoration:none;display:inline-flex;align-items:center;gap:8px;transition:all .2s;<?= $tab === 'poli' ? 'background:var(--hanania-primary);color:#fff;box-shadow:0 4px 14px rgba(79,50,147,.22);' : 'color:#5A4B70;background:transparent;' ?>">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/><path d="M9 9h1"/><path d="M9 13h1"/><path d="M9 17h1"/></svg>
+            <span>Status Operasional Poli &amp; 24 Jam</span>
+            <span style="font-size:11.5px;font-weight:800;padding:2px 8px;border-radius:999px;<?= $tab === 'poli' ? 'background:rgba(255,255,255,.22);color:#fff;' : 'background:#E8DFF2;color:var(--hanania-primary);' ?>"><?= count($dataPoliLengkap) ?></span>
+        </a>
     </div>
 
     <?php if ($tab === 'layanan'): ?>
@@ -677,7 +682,7 @@ adminPageStart('Pengaturan Pendaftaran Pasien', 'layanan_pendaftaran');
             </div>
         </section>
 
-    <?php else: ?>
+    <?php elseif ($tab === 'fields'): ?>
         <!-- ==========================================
              TAB 2: DATA YANG DIMINTA DARI PASIEN
              ========================================== -->
@@ -899,6 +904,189 @@ adminPageStart('Pengaturan Pendaftaran Pasien', 'layanan_pendaftaran');
                                             </a>
                                         <?php endif; ?>
                                     </div>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+    <?php elseif ($tab === 'poli'): ?>
+        <!-- ==========================================
+             TAB 3: STATUS OPERASIONAL POLI & 24 JAM
+             ========================================== -->
+        <?php if ($editPoliData): ?>
+            <!-- FORM EDIT POLI -->
+            <section class="admin-card" style="margin-bottom:24px;" id="editPoliBox">
+                <div class="admin-card-head">
+                    <div>
+                        <h3 class="admin-card-title">
+                            <span>✏️</span> Edit Pengaturan Operasional: <?= adminEsc($editPoliData['nama_poli']) ?>
+                        </h3>
+                        <p class="admin-card-subtitle">
+                            Atur nama poli, deskripsi, mode operasional otomatis/manual, status 24 jam nonstop, serta waktu cutoff pendaftaran.
+                        </p>
+                    </div>
+                    <a href="layanan_pendaftaran.php?tab=poli" class="btn btn-sm btn-light">Batal</a>
+                </div>
+
+                <form action="layanan_pendaftaran.php?tab=poli" method="POST">
+                    <input type="hidden" name="form_target" value="poli">
+                    <input type="hidden" name="id_poli" value="<?= (int)$editPoliData['id_poli'] ?>">
+
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+                        <div>
+                            <label style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;color:#2D253B;">Nama Poli Pelayanan *</label>
+                            <input type="text" name="nama_poli" value="<?= adminEsc($editPoliData['nama_poli']) ?>" required class="filter-input" style="width:100%;">
+                        </div>
+
+                        <div>
+                            <label style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;color:#2D253B;">Status Operasional Pendaftaran</label>
+                            <select name="status_operasional" class="filter-input" style="width:100%;background:#fff;font-weight:600;">
+                                <option value="otomatis" <?= $editPoliData['status_operasional'] === 'otomatis' ? 'selected' : '' ?>>⚙️ Otomatis (Tutup otomatis 1 jam sebelum jadwal berakhir)</option>
+                                <option value="tersedia" <?= in_array($editPoliData['status_operasional'], ['tersedia', 'buka_manual'], true) ? 'selected' : '' ?>>🟢 Pendaftaran Tersedia (Buka Manual)</option>
+                                <option value="ditutup" <?= in_array($editPoliData['status_operasional'], ['ditutup', 'tutup_manual'], true) ? 'selected' : '' ?>>⛔ Pendaftaran Ditutup (Tutup Manual)</option>
+                                <option value="full_booking" <?= $editPoliData['status_operasional'] === 'full_booking' ? 'selected' : '' ?>>🟡 Full Booking (Kuota Penuh)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+                        <div>
+                            <label style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;color:#2D253B;">Waktu Cutoff Pendaftaran (Menit)</label>
+                            <input type="number" name="waktu_cutoff_menit" value="<?= (int)($editPoliData['waktu_cutoff_menit'] ?? 60) ?>" min="0" max="180" class="filter-input" style="width:100%;" placeholder="60">
+                            <small style="color:var(--hanania-muted);font-size:11px;display:block;margin-top:4px;">Pendaftaran ditutup N menit sebelum sesi praktik berakhir (default 60 menit).</small>
+                        </div>
+
+                        <div>
+                            <label style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;color:#2D253B;">Status Keaktifan Poli</label>
+                            <select name="status" class="filter-input" style="width:100%;background:#fff;font-weight:600;">
+                                <option value="aktif" <?= ($editPoliData['status'] ?? 'aktif') === 'aktif' ? 'selected' : '' ?>>✓ Aktif (Tampil di Sistem Pendaftaran)</option>
+                                <option value="nonaktif" <?= ($editPoliData['status'] ?? '') === 'nonaktif' ? 'selected' : '' ?>>✕ Nonaktif (Disembunyikan)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div style="background:#FAF5FF;border:1.5px dashed #D8B4FE;border-radius:12px;padding:12px 16px;margin-bottom:16px;">
+                        <label style="display:inline-flex;align-items:center;gap:10px;font-weight:700;color:#6B21A8;cursor:pointer;user-select:none;margin:0;">
+                            <input type="checkbox" name="is_24jam" value="1" <?= (int)($editPoliData['is_24jam'] ?? 0) === 1 ? 'checked' : '' ?> style="width:18px;height:18px;accent-color:#7E22CE;cursor:pointer;">
+                            <span>🌙 Layanan Siaga 24 Jam Nonstop (Tidak Pernah Ditutup oleh Cutoff Otomatis)</span>
+                        </label>
+                    </div>
+
+                    <div style="margin-bottom:16px;">
+                        <label style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;color:#2D253B;">Deskripsi Poli</label>
+                        <textarea name="deskripsi" rows="2" class="filter-input" style="width:100%;resize:vertical;"><?= adminEsc($editPoliData['deskripsi'] ?? '') ?></textarea>
+                    </div>
+
+                    <div style="margin-bottom:20px;">
+                        <label style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;color:#2D253B;">Pesan Kustom Saat Tutup (Opsional)</label>
+                        <input type="text" name="pesan_tutup" value="<?= adminEsc($editPoliData['pesan_tutup'] ?? '') ?>" placeholder="Contoh: Pendaftaran dibuka kembali besok pagi pukul 08:00 WIB" class="filter-input" style="width:100%;">
+                    </div>
+
+                    <div style="display:flex;justify-content:flex-end;gap:10px;padding-top:14px;border-top:1px solid #F4EEFB;">
+                        <a href="layanan_pendaftaran.php?tab=poli" class="btn btn-sm btn-light">Batal</a>
+                        <button type="submit" class="btn btn-sm" style="background:var(--hanania-primary);color:#fff;box-shadow:0 4px 14px rgba(79,50,147,.22);padding:9px 20px;">
+                            <span>💾</span> Simpan Perubahan Poli
+                        </button>
+                    </div>
+                </form>
+            </section>
+        <?php endif; ?>
+
+        <!-- BANNER ATURAN 24 JAM -->
+        <div style="background:#FAF5FF;border:1.5px solid #E9D5FF;border-radius:14px;padding:14px 18px;margin-bottom:20px;display:flex;gap:14px;align-items:center;">
+            <span style="font-size:26px;">🌙</span>
+            <div style="font-size:12.5px;color:#581C87;line-height:1.5;">
+                <strong>Pelayanan Persalinan 24 Jam &amp; Penutupan Cutoff:</strong> Poli reguler secara otomatis ditutup <strong>60 menit</strong> sebelum sesi berakhir. Untuk layanan <strong>Persalinan 24 Jam</strong>, sistem dirancang selalu siaga 24/7 dan tidak ditutup oleh cutoff waktu.
+            </div>
+        </div>
+
+        <!-- TABEL DATA POLI -->
+        <section class="admin-card">
+            <div class="admin-card-head">
+                <div>
+                    <h3 class="admin-card-title">
+                        <span>🏥</span> Daftar Poli Pelayanan &amp; Status Operasional (<?= count($dataPoliLengkap) ?>)
+                    </h3>
+                    <p class="admin-card-subtitle">Kelola jam cutoff, status 24 jam nonstop, serta override buka/tutup manual untuk setiap poli pelayanan.</p>
+                </div>
+            </div>
+
+            <div class="admin-table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width:60px;text-align:center;">ID</th>
+                            <th>Nama Poli Pelayanan</th>
+                            <th style="width:140px;text-align:center;">Layanan 24 Jam</th>
+                            <th>Mode Operasional</th>
+                            <th style="width:100px;text-align:center;">Cutoff</th>
+                            <th style="width:110px;text-align:center;">Keaktifan</th>
+                            <th style="width:140px;text-align:center;">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($dataPoliLengkap as $p): 
+                            $is24 = (int)($p['is_24jam'] ?? 0) === 1;
+                            $stOp = $p['status_operasional'] ?? 'otomatis';
+                            $badgeOp = 'badge-purple';
+                            $lblOp = '⚙️ Otomatis';
+                            if ($stOp === 'tersedia' || $stOp === 'buka_manual') {
+                                $badgeOp = 'badge-success';
+                                $lblOp = '🟢 Pendaftaran Tersedia';
+                            } elseif ($stOp === 'ditutup' || $stOp === 'tutup_manual') {
+                                $badgeOp = 'badge-danger';
+                                $lblOp = '⛔ Pendaftaran Ditutup';
+                            } elseif ($stOp === 'full_booking') {
+                                $badgeOp = 'badge-warning';
+                                $lblOp = '🟡 Full Booking';
+                            }
+                        ?>
+                            <tr>
+                                <td style="text-align:center;font-weight:800;color:var(--hanania-muted);"><?= (int)$p['id_poli'] ?></td>
+                                <td>
+                                    <strong style="color:var(--hanania-primary);font-size:13.5px;"><?= adminEsc($p['nama_poli']) ?></strong>
+                                    <?php if (!empty($p['deskripsi'])): ?>
+                                        <div style="font-size:11.5px;color:var(--hanania-muted);margin-top:3px;"><?= adminEsc($p['deskripsi']) ?></div>
+                                    <?php endif; ?>
+                                </td>
+                                <td style="text-align:center;">
+                                    <?php if ($is24): ?>
+                                        <a href="layanan_pendaftaran.php?tab=poli&toggle_poli_24jam=<?= (int)$p['id_poli'] ?>" class="badge" style="background:#FAF5FF;color:#6B21A8;border:1px solid #D8B4FE;font-size:11px;font-weight:700;text-decoration:none;" title="Klik untuk nonaktifkan mode 24 jam">
+                                            🌙 Siaga 24 Jam
+                                        </a>
+                                    <?php else: ?>
+                                        <a href="layanan_pendaftaran.php?tab=poli&toggle_poli_24jam=<?= (int)$p['id_poli'] ?>" class="badge badge-gray" style="font-size:11px;text-decoration:none;" title="Klik untuk aktifkan mode 24 jam">
+                                            ⏰ Terjadwal
+                                        </a>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <div style="display:flex;flex-direction:column;gap:5px;">
+                                        <span class="badge <?= $badgeOp ?>" style="font-size:11.5px;width:fit-content;"><?= adminEsc($lblOp) ?></span>
+                                        <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                                            <a href="layanan_pendaftaran.php?tab=poli&toggle_poli_mode=<?= (int)$p['id_poli'] ?>&mode=otomatis" class="btn btn-sm btn-light" style="padding:2px 6px;font-size:10px;text-decoration:none;" title="Mode Otomatis Sesuai Jadwal">Otomatis</a>
+                                            <a href="layanan_pendaftaran.php?tab=poli&toggle_poli_mode=<?= (int)$p['id_poli'] ?>&mode=buka_manual" class="btn btn-sm btn-light" style="padding:2px 6px;font-size:10px;color:#16A34A;background:#DCFCE7;border:1px solid #86EFAC;text-decoration:none;" title="Buka Manual">🟢 Buka</a>
+                                            <a href="layanan_pendaftaran.php?tab=poli&toggle_poli_mode=<?= (int)$p['id_poli'] ?>&mode=tutup_manual" class="btn btn-sm btn-light" style="padding:2px 6px;font-size:10px;color:#DC2626;background:#FEE2E2;border:1px solid #FCA5A5;text-decoration:none;" title="Tutup Manual">⛔ Tutup</a>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td style="text-align:center;font-weight:700;color:var(--hanania-primary);">
+                                    <?= (int)($p['waktu_cutoff_menit'] ?? 60) ?>m
+                                </td>
+                                <td style="text-align:center;">
+                                    <?php if (($p['status'] ?? 'aktif') === 'aktif'): ?>
+                                        <a href="layanan_pendaftaran.php?tab=poli&toggle_poli_aktif=<?= (int)$p['id_poli'] ?>" class="badge badge-success" title="Klik untuk nonaktifkan" style="text-decoration:none;">✓ Aktif</a>
+                                    <?php else: ?>
+                                        <a href="layanan_pendaftaran.php?tab=poli&toggle_poli_aktif=<?= (int)$p['id_poli'] ?>" class="badge badge-gray" title="Klik untuk aktifkan" style="text-decoration:none;">✕ Nonaktif</a>
+                                    <?php endif; ?>
+                                </td>
+                                <td style="text-align:center;">
+                                    <a href="layanan_pendaftaran.php?tab=poli&edit_poli=<?= (int)$p['id_poli'] ?>#editPoliBox" class="btn btn-sm btn-light" style="padding:4px 10px;font-size:12px;display:inline-flex;align-items:center;gap:4px;">
+                                        ✏️ Edit
+                                    </a>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
